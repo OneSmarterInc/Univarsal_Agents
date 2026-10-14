@@ -1,0 +1,74 @@
+# Single-host pilot template. NOT deployment approval; pin image digests before use.
+x-service: &service
+  build: .
+  env_file: .env
+  environment:
+    AGENTS_DATA_DIR: /data
+    AGENTS_OLLAMA_BASE_URL: http://inference:8080
+    AGENTS_OLLAMA_ALLOWED_HOST: inference
+  volumes: ["data:/data"]
+  networks: [application, outbound]
+  read_only: true
+  tmpfs: ["/tmp:size=512m,mode=1777"]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  depends_on:
+    db: {condition: service_healthy}
+
+services:
+  api:
+    <<: *service
+  worker:
+    <<: *service
+    command: [agents, worker]
+  admin:
+    <<: *service
+    profiles: [tools]
+    command: [agents, init-db]
+  db:
+    image: ${POSTGRES_IMAGE:?Set an approved PostgreSQL 17 image digest}
+    environment:
+      POSTGRES_DB: agents
+      POSTGRES_USER: agents
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a secret password}
+    volumes: ["database:/var/lib/postgresql/data"]
+    networks: [application]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U agents -d agents"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  ollama:
+    image: ${OLLAMA_IMAGE:?Set a tested Qwen3-compatible Ollama image digest}
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_NO_CLOUD: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_MAX_QUEUE: "1"
+    volumes: ["models:/root/.ollama", "./models:/approved-models:ro"]
+    networks: [model]
+  inference:
+    image: ${NGINX_IMAGE:?Set an approved nginx image digest}
+    volumes: ["./deploy/inference.conf:/etc/nginx/conf.d/default.conf:ro"]
+    networks: [application, model]
+    depends_on: [ollama]
+  https:
+    image: ${CADDY_IMAGE:?Set an approved Caddy 2 image digest}
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Set the approved API hostname}
+    ports: ["443:443"]
+    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", "certificates:/data"]
+    networks: [application, outbound]
+    depends_on: [api]
+
+networks:
+  application: {internal: true}
+  model: {internal: true}
+  outbound: {}
+volumes:
+  data: {}
+  database: {}
+  models: {}
+  certificates: {}

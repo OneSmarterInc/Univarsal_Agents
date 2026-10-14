@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "univarsal-agents"
+version = "0.1.0"
+description = "Private Ollama-backed, tenant-scoped extraction service"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.30,<1", "sqlalchemy>=2.0,<2.1",
+  "httpx>=0.28,<1", "python-multipart>=0.0.20", "pydantic-settings>=2.8,<3",
+  "cryptography>=44", "pypdf>=6", "python-docx>=1.1", "Pillow>=11",
+  "psycopg[binary]>=3.2", "defusedxml>=0.7.1"
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "ruff>=0.11", "reportlab>=4", "pip-audit>=2.8"]
+
+[project.scripts]
+agents = "extraction_service.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["extraction_service*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110

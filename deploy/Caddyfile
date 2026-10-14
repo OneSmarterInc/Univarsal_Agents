@@ -1,0 +1,12 @@
+{
+    auto_https disable_redirects
+}
+{$API_DOMAIN} {
+    request_body { max_size 11MB }
+    reverse_proxy api:8000
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        -Server
+    }
+}
