@@ -11,16 +11,21 @@ log = logging.getLogger(__name__)
 PUBLIC = ('/health/live', '/health/ready')
 
 
-def error_response(exc, request_id):
+def error_response(exc, request_id, add_header=True):
     headers = {'Retry-After': str(exc.retry_after)} if exc.retry_after else {}
-    headers['x-request-id'] = request_id
+    if add_header:
+        headers['x-request-id'] = request_id
     return JSONResponse(
         {'error': exc.payload(), 'request_id': request_id}, status_code=exc.status, headers=headers
     )
 
 
 class Boundary:
-    """Request id, browser refusal, body size limit, safe headers and safe errors."""
+    """Request id, browser refusal, body size limit, safe headers and safe errors.
+
+    The body is not read here: it is counted while the route reads it, so a
+    route can check the API key before a large upload is read at all.
+    """
 
     def __init__(self, app, max_body):
         self.app, self.max_body = app, max_body
@@ -29,6 +34,7 @@ class Boundary:
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
         request_id = secrets.token_hex(12)
+        scope.setdefault('state', {})['request_id'] = request_id
         headers = dict(scope['headers'])
         started = False
 
@@ -51,7 +57,7 @@ class Boundary:
             if b'origin' in headers and scope['path'] not in PUBLIC:
                 raise ServiceError('browser_calls_not_allowed', 403)
             if scope['method'] in ('POST', 'PUT', 'PATCH'):
-                receive = await self._bounded(headers, receive)
+                receive = self._counted(headers, receive)
             await self.app(scope, receive, safe_send)
         except ServiceError as exc:
             if not started:
@@ -61,7 +67,7 @@ class Boundary:
             if not started:
                 await error_response(ServiceError('internal_error', 500), request_id)(scope, receive, send)
 
-    async def _bounded(self, headers, receive):
+    def _counted(self, headers, receive):
         if b'content-length' in headers:
             try:
                 length = int(headers[b'content-length'])
@@ -69,22 +75,14 @@ class Boundary:
                 raise ServiceError('invalid_request', 400) from None
             if length < 0 or length > self.max_body:
                 raise ServiceError('request_too_large', 413)
-        messages, size = [], 0
-        while True:
+        size = 0
+
+        async def counted():
+            nonlocal size
             message = await receive()
-            if message['type'] == 'http.disconnect':
-                messages.append(message)
-                break
             size += len(message.get('body', b''))
             if size > self.max_body:
                 raise ServiceError('request_too_large', 413)
-            messages.append(message)
-            if not message.get('more_body'):
-                break
+            return message
 
-        async def replay():
-            if messages:
-                return messages.pop(0)
-            return {'type': 'http.request', 'body': b'', 'more_body': False}
-
-        return replay
+        return counted

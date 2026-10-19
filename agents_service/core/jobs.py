@@ -244,7 +244,10 @@ class JobLine:
                     run_seconds=now - (job.started_at or now),
                     wait_seconds=(job.started_at or now) - job.created_at,
                 )
-        self.storage.delete_job(job_id)
+        if changed:
+            # Only the worker that held the job may delete its files: a worker that lost
+            # its borrow must not delete files another worker is now reading.
+            self.storage.delete_job(job_id)
         return bool(changed)
 
     def retry_later(self, job_id, worker_id):
@@ -311,11 +314,28 @@ class JobLine:
     # --- reporting ------------------------------------------------------------
 
     def queue_info(self, s, job):
-        ahead = s.scalar(
+        """Position and wait estimate for one waiting job.
+
+        Projects take turns, so before this job starts its own project's earlier
+        jobs run, and each other project gets at most as many turns.
+        """
+        mine = s.scalar(
             select(func.count())
             .select_from(Job)
-            .where(Job.state == 'queued', Job.created_at < job.created_at)
+            .where(
+                Job.state == 'queued',
+                Job.agent == job.agent,
+                Job.project == job.project,
+                Job.created_at < job.created_at,
+            )
         )
+        others = s.execute(
+            select(func.count())
+            .select_from(Job)
+            .where(Job.state == 'queued', Job.agent == job.agent, Job.project != job.project)
+            .group_by(Job.project)
+        ).scalars()
+        ahead = mine + sum(min(count, mine + 1) for count in others)
         workers = (
             s.scalar(select(func.count(func.distinct(Job.lease_owner))).where(Job.state == 'running')) or 1
         )

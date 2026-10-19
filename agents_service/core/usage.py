@@ -3,7 +3,7 @@
 import time
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from agents_service.core.models import Usage
 
@@ -14,24 +14,32 @@ def day_of(timestamp):
     return datetime.fromtimestamp(timestamp, UTC).strftime('%Y-%m-%d')
 
 
+def upsert(session, table, keys, amounts, fixed=None):
+    """Insert a counter row or add `amounts` to it, in one statement (safe when many run at once).
+
+    `fixed` values are set only when the row is created.
+    """
+    dialect = session.get_bind().dialect.name
+    if dialect == 'postgresql':
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    statement = insert(table).values(**keys, **amounts, **(fixed or {}))
+    columns = table.__table__.c
+    statement = statement.on_conflict_do_update(
+        index_elements=list(keys),
+        set_={name: columns[name] + statement.excluded[name] for name in amounts},
+    )
+    session.execute(statement)
+
+
 def add_usage(session, timestamp, project, agent, **amounts):
     """Add to today's counters for this project and agent (inside the caller's transaction)."""
     amounts = {k: v for k, v in amounts.items() if k in COUNTERS and v}
     if not amounts:
         return
-    day = day_of(timestamp)
-    key = (Usage.day == day) & (Usage.project == project) & (Usage.agent == agent)
-    changed = session.execute(
-        update(Usage)
-        .where(key)
-        .values({getattr(Usage, k): getattr(Usage, k) + v for k, v in amounts.items()})
-    ).rowcount
-    if not changed:
-        row = Usage(day=day, project=project, agent=agent, **{k: 0 for k in COUNTERS})
-        for name, value in amounts.items():
-            setattr(row, name, value)
-        session.add(row)
-        session.flush()
+    # Counters not given take their column default (0) on insert.
+    upsert(session, Usage, {'day': day_of(timestamp), 'project': project, 'agent': agent}, amounts)
 
 
 def usage_report(db, days=7):

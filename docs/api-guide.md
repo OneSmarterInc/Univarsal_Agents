@@ -75,11 +75,18 @@ import time, httpx
 def read_cv(path, key, base='https://agents.example.com'):
     with httpx.Client(base_url=base, headers={'Authorization': f'Bearer {key}'}, timeout=60) as client:
         with open(path, 'rb') as f:
-            job = client.post('/v1/cv/jobs', files={'files': (path, f)},
-                              headers={'Idempotency-Key': f'cv-{path}'}).json()
+            response = client.post('/v1/cv/jobs', files={'files': (path, f)},
+                                   headers={'Idempotency-Key': f'cv-{path}'})
+        response.raise_for_status()                               # 4xx: fix the request; 429/503: retry later
+        job = response.json()
         while job['state'] in ('queued', 'running'):
             time.sleep(job.get('poll_after_seconds', 5))
-            job = client.get(job['links']['self']).json()
+            response = client.get(job['links']['self'])
+            if response.status_code == 429:                       # too many checks: wait, then retry
+                time.sleep(int(response.headers.get('Retry-After', '5')))
+                continue
+            response.raise_for_status()
+            job = response.json()
         return job
 ```
 
@@ -155,7 +162,8 @@ Every error has the same shape:
 
 | Limit | Value |
 |---|---|
-| Requests per key | 60 per minute |
+| Requests per key | 60 per minute (starting, cancelling, listing) |
+| Job checks per key | 600 per minute (`GET /v1/<agent>/jobs/{id}`) |
 | New jobs per key | 10 per minute |
 | Waiting jobs per project | 50 |
 | File size | 10 MB |

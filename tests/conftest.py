@@ -1,4 +1,5 @@
 import io
+import os
 import zipfile
 
 import pytest
@@ -12,10 +13,28 @@ from agents_service.core.config import Settings
 from agents_service.core.keys import create_key
 from agents_service.services import build
 
+# Run the whole suite on PostgreSQL too:
+#   AGENTS_TEST_DATABASE_URL=postgresql+psycopg://user@host:5432/agents_test pytest
+TEST_DATABASE = os.environ.get('AGENTS_TEST_DATABASE_URL', '')
+
+
+def fresh_database(url):
+    """An empty PostgreSQL schema for each test."""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(text('DROP SCHEMA public CASCADE'))
+        connection.execute(text('CREATE SCHEMA public'))
+    engine.dispose()
+    return url
+
 
 def make_settings(tmp_path, **overrides):
     values = {
-        'database_url': 'sqlite:///' + str(tmp_path / 'agents.db'),
+        'database_url': fresh_database(TEST_DATABASE)
+        if TEST_DATABASE
+        else 'sqlite:///' + str(tmp_path / 'agents.db'),
         'data_dir': tmp_path / 'data',
         'key_pepper': 'test-pepper-' * 4,
         'isolate_parsing': False,

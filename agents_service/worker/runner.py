@@ -111,8 +111,9 @@ def run_job(services, job, worker):
         )  # fmt: skip
     except AIError as exc:
         if exc.reason == 'cancelled':
-            log.info('job cancelled while running: id=%s', job.id)
-            services.storage.delete_job(job.id)
+            # Cancelled by the project (cancel() deletes the files), or the borrow was
+            # lost to another worker, which must keep its files.
+            log.info('job stopped: id=%s (cancelled or taken over)', job.id)
         elif exc.reason == 'configuration':
             log.error('Model configuration problem (%s); job %s failed', exc.field, job.id)
             services.jobs.finish(job.id, worker, 'failed', None, 'model_unavailable')
@@ -163,6 +164,11 @@ def run(services, agents=None, once=False, stop=None):
                 return
             stop.wait(services.settings.poll_seconds)
             continue
-        run_job(services, job, worker)
+        try:
+            run_job(services, job, worker)
+        except Exception:  # noqa: BLE001 - e.g. the database was down while saving
+            # The job keeps its borrow until it runs out, then returns to the line.
+            log.exception('Could not save job %s; it will return to the line', job.id)
+            stop.wait(5)
         if once:
             return

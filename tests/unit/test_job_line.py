@@ -182,3 +182,48 @@ def test_queue_position_and_estimate(services, position):
     job = services.jobs.get(principal, second)
     assert job['queue'] == {'position': 2, 'estimated_wait_seconds': 120}
     assert services.jobs.get(principal, first)['queue']['position'] == position
+
+
+def test_worker_that_lost_its_job_does_not_delete_the_new_holders_files(services):
+    (job_id,) = queue(services)
+    services.jobs.claim('stalled', ['cv'])
+    expire_lease(services, job_id)
+    services.jobs.sweep()
+    services.jobs.claim('fresh', ['cv'])
+    assert services.storage.stored_jobs(older_than=-1) == {job_id}
+    assert not services.jobs.finish(job_id, 'stalled', 'done', {'records': []})
+    assert services.storage.stored_jobs(older_than=-1) == {job_id}  # still there for 'fresh'
+
+
+def test_worker_keeps_running_when_saving_fails(services, monkeypatch):
+    first, second = queue(services, n=2)
+    services.agents['cv'] = SlowAgent(lambda job: AgentResult())
+    real_finish = services.jobs.finish
+    calls = []
+
+    def flaky_finish(*args, **kwargs):
+        calls.append(args[0])
+        if len(calls) <= 2:  # the save and the fallback "failed" save both fail
+            from agents_service.core.errors import ServiceError
+
+            raise ServiceError('database_unavailable', 503, True, 5)
+        return real_finish(*args, **kwargs)
+
+    monkeypatch.setattr(services.jobs, 'finish', flaky_finish)
+    import threading
+
+    stop = threading.Event()
+    stop.wait = lambda timeout=None: None
+    runner.run(services, once=True, stop=stop)  # must not raise
+    runner.run(services, once=True, stop=stop)
+    assert state(services, first) == 'running'  # returns to the line when its borrow runs out
+    assert state(services, second) == 'failed'  # no records: failed, but saved
+
+
+def test_queue_position_follows_fair_turns(services):
+    queue(services, 'busy', n=4)
+    queue(services, 'other', agent='linkedin', n=3)
+    (mine,) = queue(services, 'small', n=1)
+    job = services.jobs.get(Principal('key_small00000000000', 'small', 'cv'), mine)
+    # Only one busy-project job runs before the small project's turn; LinkedIn jobs do not count.
+    assert job['queue']['position'] == 2

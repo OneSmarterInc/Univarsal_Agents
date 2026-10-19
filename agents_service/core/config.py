@@ -67,6 +67,8 @@ class Settings(BaseSettings):
 
     # Limits per key and per project.
     requests_per_minute: int = 60
+    # Checking a job's state (polling) has its own, higher limit.
+    reads_per_minute: int = 600
     jobs_per_minute: int = 10
     max_waiting_per_project: int = 50
     max_waiting_total: int = 500
@@ -91,6 +93,9 @@ class Settings(BaseSettings):
             raise ValueError('Set AGENTS_KEY_PEPPER to a random value before starting.')
         if self.storage == 's3' and not self.s3_bucket:
             raise ValueError('AGENTS_S3_BUCKET is required when AGENTS_STORAGE=s3.')
+        if not self.s3_prefix.endswith('/') or self.s3_prefix.strip('/') == '':
+            # The service deletes old files under this prefix; it must be its own folder.
+            raise ValueError('AGENTS_S3_PREFIX must be a folder of its own, like "uploads/".')
         return self
 
     def model_for(self, agent):

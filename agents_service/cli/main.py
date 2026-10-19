@@ -205,9 +205,17 @@ def try_agent(args):
         job = response.json()
         print(f'Job {job["id"]} accepted; waiting for the result...', file=sys.stderr)
         deadline = time.monotonic() + args.timeout
+        url = job['links']['self']
         while job['state'] in ('queued', 'running') and time.monotonic() < deadline:
             time.sleep(min(5, job.get('poll_after_seconds', 5)))
-            job = client.get(job['links']['self'], headers={'Authorization': 'Bearer ' + args.key}).json()
+            response = client.get(url, headers={'Authorization': 'Bearer ' + args.key})
+            if response.status_code == 429:
+                time.sleep(int(response.headers.get('Retry-After', '5')))
+                continue
+            if response.status_code != 200:
+                print(json.dumps(response.json(), indent=2))
+                return 1
+            job = response.json()
             if 'queue' in job:
                 print(f'  waiting: position {job["queue"]["position"]}', file=sys.stderr)
     print(json.dumps(job, indent=2, ensure_ascii=False))

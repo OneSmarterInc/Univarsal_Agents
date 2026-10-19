@@ -15,6 +15,7 @@ from pathlib import Path
 from agents_service.core.errors import ServiceError
 
 NAME = re.compile(r'^job_[a-f0-9]{24}/\d{1,2}\.[a-z]{2,5}$')
+JOB_ID = re.compile(r'^job_[a-f0-9]{24}$')
 
 
 def file_name(job_id, index, suffix):
@@ -46,12 +47,18 @@ class LocalStorage:
         yield self._path(name)
 
     def delete_job(self, job_id):
+        if not JOB_ID.fullmatch(job_id):
+            raise ServiceError('internal_error', 500)
         shutil.rmtree(self.root / job_id, ignore_errors=True)
 
     def stored_jobs(self, older_than):
         """Job ids that have files older than the given age in seconds."""
         limit = time.time() - older_than
-        return {p.name for p in self.root.iterdir() if p.is_dir() and p.stat().st_mtime < limit}
+        return {
+            p.name
+            for p in self.root.iterdir()
+            if JOB_ID.fullmatch(p.name) and p.is_dir() and p.stat().st_mtime < limit
+        }
 
     def check(self):
         probe = self.root / '.probe'
@@ -89,6 +96,8 @@ class S3Storage:
             yield path
 
     def delete_job(self, job_id):
+        if not JOB_ID.fullmatch(job_id):
+            raise ServiceError('internal_error', 500)
         listing = self.client.list_objects_v2(Bucket=self.bucket, Prefix=f'{self.prefix}{job_id}/')
         keys = [{'Key': item['Key']} for item in listing.get('Contents', [])]
         if keys:
@@ -100,8 +109,10 @@ class S3Storage:
         paginator = self.client.get_paginator('list_objects_v2')
         for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix):
             for item in page.get('Contents', []):
-                if item['LastModified'].timestamp() < limit:
-                    found.add(item['Key'][len(self.prefix) :].split('/')[0])
+                job_id = item['Key'][len(self.prefix) :].split('/')[0]
+                # Only this service's own job folders; never anything else in the bucket.
+                if JOB_ID.fullmatch(job_id) and item['LastModified'].timestamp() < limit:
+                    found.add(job_id)
         return found
 
     def check(self):

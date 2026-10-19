@@ -121,3 +121,43 @@ def test_env_example_loads(monkeypatch):
     settings = Settings(_env_file=None)
     assert settings.enabled_agents == ['cv', 'linkedin']
     assert settings.model_provider == 'ollama' and settings.model_overrides == {}
+
+
+def test_s3_prefix_must_be_a_folder_of_its_own(tmp_path):
+    for prefix in ('', '/', 'uploads'):
+        with pytest.raises(ValueError):
+            make_settings(tmp_path, storage='s3', s3_bucket='b', s3_prefix=prefix)
+
+
+@mock_aws
+def test_cleanup_ignores_other_objects_in_the_bucket():
+    client = boto3.client('s3', region_name='us-east-1')
+    client.create_bucket(Bucket='shared')
+    client.put_object(Bucket='shared', Key='uploads/not-a-job/file.txt', Body=b'x')
+    client.put_object(Bucket='shared', Key='uploads-archive/keep.txt', Body=b'x')
+    storage = S3Storage('shared', 'uploads/', 'us-east-1')
+    assert storage.stored_jobs(older_than=-1) == set()
+    with pytest.raises(ServiceError):
+        storage.delete_job('../uploads-archive')
+
+
+def test_usage_counters_survive_parallel_first_writes(services):
+    from agents_service.core.usage import add_usage, usage_report
+
+    def write():
+        for _ in range(10):
+            with services.db.session() as s:
+                add_usage(s, 0, 'p', 'cv', jobs=1)
+
+    threads = [threading.Thread(target=write) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    with services.db.session() as s:
+        from sqlalchemy import select
+
+        from agents_service.core.models import Usage
+
+        assert s.scalar(select(Usage.jobs).where(Usage.project == 'p')) == 50
+    assert usage_report is not None

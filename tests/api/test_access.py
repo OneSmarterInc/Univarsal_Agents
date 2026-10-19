@@ -91,12 +91,21 @@ def test_requests_per_minute_limit(tmp_path, pdf_bytes):
     from agents_service.services import build
     from tests.conftest import make_settings
 
-    services = build(make_settings(tmp_path, requests_per_minute=3))
+    services = build(make_settings(tmp_path, requests_per_minute=3, reads_per_minute=5))
     services.db.upgrade()
     token = create_key(services.db, services.settings.key_pepper, 'p', 'cv', 'cv')[1]
     client = TestClient(create_app(services))
-    codes = [client.get('/v1/cv/jobs/job_' + '0' * 24, headers=auth(token)).status_code for _ in range(4)]
-    assert codes[:3] == [404, 404, 404]
-    assert codes[3] == 429
-    response = client.get('/v1/cv/jobs/job_' + '0' * 24, headers=auth(token))
+    codes = [client.get('/v1/agents', headers=auth(token)).status_code for _ in range(4)]
+    assert codes == [200, 200, 200, 429]
+    response = client.get('/v1/agents', headers=auth(token))
     assert int(response.headers['Retry-After']) >= 1
+    # Checking jobs has its own, higher limit, so polling never blocks new uploads.
+    reads = [client.get('/v1/cv/jobs/job_' + '0' * 24, headers=auth(token)).status_code for _ in range(6)]
+    assert reads == [404] * 5 + [429]
+
+
+def test_error_body_and_header_carry_the_same_request_id(client):
+    response = client.get('/v1/agents', headers={'Authorization': 'Bearer nope', 'x-request-id': 'spoofed'})
+    assert response.status_code == 401
+    assert response.json()['request_id'] == response.headers['x-request-id'] != 'spoofed'
+    assert len(response.headers.get_list('x-request-id')) == 1

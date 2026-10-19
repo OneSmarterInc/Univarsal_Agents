@@ -51,19 +51,20 @@ def create_app(services=None):
 
     @app.exception_handler(ServiceError)
     async def service_error(request, exc):
-        return error_response(exc, request.headers.get('x-request-id', ''))
+        # The middleware adds the x-request-id header; the body carries the same id.
+        return error_response(exc, request.scope.get('state', {}).get('request_id', ''), add_header=False)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, exc):
         # FastAPI's default message can repeat the request body; never send it back.
         return JSONResponse({'error': ServiceError('invalid_request').payload()}, status_code=422)
 
-    def principal_for(request, agent_name=None, limit=True):
+    def principal_for(request, agent_name=None, bucket='requests'):
         principal = authenticate(services.db, settings.key_pepper, bearer(request))
         if agent_name is not None and principal.agent != agent_name:
             raise ServiceError('wrong_agent', 403)
-        if limit:
-            check_rate(services.db, principal.key_id, 'requests', settings.requests_per_minute)
+        limit = settings.reads_per_minute if bucket == 'reads' else settings.requests_per_minute
+        check_rate(services.db, principal.key_id, bucket, limit)
         return principal
 
     @app.get('/health/live')
@@ -140,7 +141,7 @@ def add_agent_routes(app, services, agent, principal_for):
         return JSONResponse(job, status_code=202, headers={'Location': job['links']['self']})
 
     def get_job(request: Request, job_id: str):
-        return services.jobs.get(principal_for(request, agent.name), job_id)
+        return services.jobs.get(principal_for(request, agent.name, bucket='reads'), job_id)
 
     def cancel_job(request: Request, job_id: str):
         return JSONResponse(services.jobs.cancel(principal_for(request, agent.name), job_id), status_code=202)

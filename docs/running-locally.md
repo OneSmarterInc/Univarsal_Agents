@@ -97,3 +97,13 @@ Run the Docker compose file from phase 2 on your laptop with Docker Desktop.
 | Database | `data/agents.db` (SQLite) |
 | Uploaded files while waiting | `data/files/` (deleted when each job ends) |
 | Logs | The terminals (no file content is ever logged) |
+
+## 7. For developers
+
+```
+agents check                                   # lint + all tests on SQLite
+AGENTS_TEST_DATABASE_URL=postgresql+psycopg://user@127.0.0.1:5432/agents_test pytest
+```
+
+The second line runs every test on PostgreSQL (the AWS database). Use an empty,
+UTF-8 database you do not need: each test wipes it.

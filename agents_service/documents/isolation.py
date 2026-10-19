@@ -28,7 +28,6 @@ SAFE_ENV = (
     'HOME',
     'USERPROFILE',
 )
-TIMEOUT_SECONDS = 300
 
 
 def resolve(clean):
@@ -52,9 +51,18 @@ def read_text(path, settings, clean=None):
         str(path),
         clean or '',
         settings.tesseract_cmd or '',
+        str(settings.file_seconds),
     ]
+    # Own process group: Ctrl+C on the worker ("stop after this job") must not kill the reader.
+    group = (
+        {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
+        if sys.platform == 'win32'
+        else {'start_new_session': True}
+    )
     try:
-        proc = subprocess.run(command, env=env, capture_output=True, timeout=TIMEOUT_SECONDS, check=False)
+        proc = subprocess.run(
+            command, env=env, capture_output=True, timeout=settings.file_seconds, check=False, **group
+        )
     except subprocess.TimeoutExpired as exc:
         raise ExtractionError('Reading this file took too long. Upload a smaller or clearer file.') from exc
     if len(proc.stdout) > 4 * 1024 * 1024:
@@ -68,19 +76,19 @@ def read_text(path, settings, clean=None):
     raise ExtractionError(answer.get('error') or 'The file could not be read. It may be broken or protected.')
 
 
-def _limit_resources():
+def _limit_resources(seconds):
     try:
         import resource
     except ImportError:  # Windows
         return
     resource.setrlimit(resource.RLIMIT_AS, (2048 * 1024**2, 2048 * 1024**2))
-    resource.setrlimit(resource.RLIMIT_CPU, (240, 240))
+    resource.setrlimit(resource.RLIMIT_CPU, (seconds, seconds))
     resource.setrlimit(resource.RLIMIT_FSIZE, (200 * 1024**2, 200 * 1024**2))
 
 
 def main():
-    _limit_resources()
-    path, clean, tesseract = sys.argv[1], sys.argv[2], sys.argv[3]
+    path, clean, tesseract, seconds = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+    _limit_resources(seconds)
     reading.TESSERACT_CMD = tesseract
     try:
         result = {'text': reading.read_document(path, clean=resolve(clean))}
