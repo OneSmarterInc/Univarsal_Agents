@@ -1,0 +1,122 @@
+"""Every setting in one place.
+
+Values come from environment variables with the ``AGENTS_`` prefix, or from a
+``.env`` file in the folder the service starts in. Environment variables win.
+"""
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Literal
+
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+Provider = Literal['ollama', 'openai', 'anthropic']
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix='AGENTS_', env_file='.env', env_file_encoding='utf-8', extra='ignore'
+    )
+
+    # Storage of jobs, keys and usage. SQLite on a laptop, PostgreSQL on a server.
+    database_url: str = 'sqlite:///data/agents.db'
+    data_dir: Path = Path('data')
+
+    # Secret mixed into every key hash. At least 32 random characters.
+    key_pepper: str = Field(min_length=32)
+
+    # Where uploaded files wait for their job: the local disk or S3.
+    storage: Literal['local', 's3'] = 'local'
+    s3_bucket: str = ''
+    s3_prefix: str = 'uploads/'
+    s3_region: str = ''
+    s3_endpoint_url: str = ''
+
+    # Agents switched on. Each name is a folder in agents_service/agents/.
+    enabled_agents: list[str] = ['cv', 'linkedin']
+
+    # The model every agent uses unless an override below says otherwise.
+    # ollama and openai: an OpenAI-compatible server (Ollama, vLLM, a hosted API).
+    # anthropic: the Anthropic API with an API key.
+    model_provider: Provider = 'ollama'
+    model_base_url: str = 'http://127.0.0.1:11434/v1'
+    model_name: str = 'kormic-local'
+    model_api_key: str = ''
+    model_structured_mode: Literal['json_schema', 'tools'] = 'json_schema'
+    model_reasoning_effort: Literal['', 'none', 'low', 'medium', 'high'] = 'none'
+    model_context_tokens: int = 16384
+    model_output_tokens: int = 2048
+    model_allow_http: bool = False
+    # Longest wait for one model answer.
+    model_request_seconds: int = 120
+    # Put the document text before the question, so Ollama can reuse it
+    # across the questions about one piece of text (faster on a CPU).
+    model_text_first: bool = True
+    # Per agent, any of the model_* values above, for example
+    # AGENTS_MODEL_OVERRIDES='{"linkedin": {"provider": "anthropic", "name": "claude-..."}}'
+    model_overrides: dict[str, dict] = {}
+
+    # Reading.
+    tesseract_cmd: str = ''
+    # Read every file in a separate, limited process (recommended).
+    isolate_parsing: bool = True
+    file_seconds: int = 900
+    cv_chunk_chars: int = 3000
+    linkedin_max_files: int = Field(default=5, ge=1, le=10)
+
+    # Limits per key and per project.
+    requests_per_minute: int = 60
+    jobs_per_minute: int = 10
+    max_waiting_per_project: int = 50
+    max_waiting_total: int = 500
+
+    # The job line.
+    lease_seconds: int = 120
+    max_attempts: int = 2
+    queue_expiry_seconds: int = 1800
+    result_retention_seconds: int = 7 * 86400
+    poll_seconds: float = 2.0
+
+    @field_validator('enabled_agents', mode='before')
+    @classmethod
+    def split_agents(cls, value):
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(',') if part.strip()]
+        return value
+
+    @model_validator(mode='after')
+    def check(self):
+        if self.key_pepper.upper().startswith('REPLACE'):
+            raise ValueError('Set AGENTS_KEY_PEPPER to a random value before starting.')
+        if self.storage == 's3' and not self.s3_bucket:
+            raise ValueError('AGENTS_S3_BUCKET is required when AGENTS_STORAGE=s3.')
+        return self
+
+    def model_for(self, agent):
+        """The model settings for one agent (provider, address, name, limits), after its override."""
+        values = {
+            'provider': self.model_provider,
+            'base_url': self.model_base_url.rstrip('/'),
+            'name': self.model_name,
+            'api_key': self.model_api_key,
+            'structured_mode': self.model_structured_mode,
+            'reasoning_effort': self.model_reasoning_effort,
+            'context_tokens': self.model_context_tokens,
+            'output_tokens': self.model_output_tokens,
+            'allow_http': self.model_allow_http,
+            'request_seconds': self.model_request_seconds,
+            'text_first': self.model_text_first,
+        }
+        override = self.model_overrides.get(agent, {})
+        unknown = set(override) - set(values)
+        if unknown:
+            raise ValueError(f'Unknown model override for {agent}: {", ".join(sorted(unknown))}')
+        values.update(override)
+        values['base_url'] = str(values['base_url']).rstrip('/')
+        return values
+
+
+@lru_cache
+def get_settings():
+    return Settings()
