@@ -106,3 +106,18 @@ def test_parallel_claims_on_sqlite_never_share_a_job(services):
     for thread in threads:
         thread.join()
     assert sorted(taken) == sorted(ids)
+
+
+def test_env_example_loads(monkeypatch):
+    from pathlib import Path
+
+    example = Path(__file__).resolve().parents[2] / '.env.example'
+    for line in example.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith('#'):
+            key, value = line.split('=', 1)
+            monkeypatch.setenv(key, value)
+    monkeypatch.setenv('AGENTS_KEY_PEPPER', 'x' * 40)
+    settings = Settings(_env_file=None)
+    assert settings.enabled_agents == ['cv', 'linkedin']
+    assert settings.model_provider == 'ollama' and settings.model_overrides == {}

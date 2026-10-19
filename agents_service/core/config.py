@@ -6,10 +6,10 @@ Values come from environment variables with the ``AGENTS_`` prefix, or from a
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Provider = Literal['ollama', 'openai', 'anthropic']
 
@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     s3_endpoint_url: str = ''
 
     # Agents switched on. Each name is a folder in agents_service/agents/.
-    enabled_agents: list[str] = ['cv', 'linkedin']
+    enabled_agents: Annotated[list[str], NoDecode] = ['cv', 'linkedin']
 
     # The model every agent uses unless an override below says otherwise.
     # ollama and openai: an OpenAI-compatible server (Ollama, vLLM, a hosted API).

@@ -1,0 +1,38 @@
+{
+  "about": "Made-up documents with the answers a correct reader must find. Run: agents accuracy",
+  "cases": [
+    {
+      "id": "cv-simple",
+      "agent": "cv",
+      "text": "Priya Raman\npriya.raman@example.com | +1 614 555 0142 | Columbus, Ohio\nProfessional Summary\nClinical data analyst with five years of hospital reporting experience.\nExperience\nClinical Data Analyst, Riverside Health, 2021 - Present\nBuilt SQL reports for nursing quality.\nData Assistant, Lakeview Clinic, 2019 - 2021\nEducation\nM.S. Health Informatics, Ohio State University, 2017 - 2019\nB.Sc. Statistics, University of Toledo, 2013 - 2017\nSkills\nSQL, Python, Tableau",
+      "expect": {
+        "name": ["Priya Raman"],
+        "email": ["priya.raman@example.com"],
+        "work_experience_entries": ["Clinical Data Analyst", "Riverside Health"],
+        "education": ["Health Informatics", "Ohio State University"],
+        "skills": ["SQL", "Tableau"]
+      }
+    },
+    {
+      "id": "cv-header-and-referee",
+      "agent": "cv",
+      "text": "CURRICULUM VITAE\nDaniel Okafor\nMechanical Engineer\ndaniel.okafor@example.org\nWork Experience\nDesign Engineer, Northwind Motors, 2018 - 2023\nEducation\nB.Eng. Mechanical Engineering, University of Lagos, 2012 - 2016\nReferences\nName: Sarah Mills, Northwind Motors",
+      "expect": {
+        "name": ["Daniel Okafor"],
+        "work_experience_entries": ["Design Engineer", "Northwind Motors"],
+        "education": ["Mechanical Engineering", "University of Lagos"]
+      },
+      "must_not": {"name": ["Sarah Mills"]}
+    },
+    {
+      "id": "linkedin-header",
+      "agent": "linkedin",
+      "text": "Meera Joshi\nProduct Manager at Brightpath Software | Agile | Analytics\nPune, Maharashtra, India\nAbout\nI build products for small clinics.\nExperience\nProduct Manager\nBrightpath Software\n2020 - Present",
+      "expect": {
+        "name": ["Meera Joshi"],
+        "headline": ["Product Manager at Brightpath Software"],
+        "experiences": ["Product Manager", "Brightpath Software"]
+      }
+    }
+  ]
+}

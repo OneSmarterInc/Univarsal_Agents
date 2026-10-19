@@ -56,6 +56,9 @@ def build_parser():
     stats.add_argument('--days', type=int, default=7)
     model = sub.add_parser('model-check', help='send one tiny request to the model')
     model.add_argument('--agent', default='')
+    accuracy = sub.add_parser('accuracy', help='run made-up documents through the real model and score them')
+    accuracy.add_argument('--agent', default='')
+    accuracy.add_argument('--cases', default='accuracy/cases.json')
     sub.add_parser('sweep', help='expire, return and delete now (workers do this every minute)')
     sub.add_parser('generate-secret', help='print a random value for AGENTS_KEY_PEPPER')
     sub.add_parser('check', help='lint and run all tests (needs the test extras)')
@@ -115,6 +118,12 @@ def main(argv=None):
         print(json.dumps(services.jobs.sweep()))
     elif args.command == 'model-check':
         return model_check(services, args.agent)
+    elif args.command == 'accuracy':
+        from agents_service.cli.accuracy import run as accuracy
+
+        report = accuracy(services.settings, args.agent or None, args.cases)
+        print(json.dumps(report, indent=2))
+        return 0 if report['clean'] else 1
     return 0
 
 
