@@ -92,9 +92,9 @@ class LinkedInAgent(Agent):
             seen[file.sha256] = file.index
             with stage('read'):
                 text = read_text(file.path, job.settings, clean=SCREENSHOT_CLEANER)
-            with stage('model'):
+            with stage('provider'):
                 response = ask_model(text, job.model)
-            with stage('check'):
+            with stage('validate'):
                 validate_response_size(response)
                 data = ImageObservation.model_validate(response, extra='ignore').model_dump()
                 checked = validate_data(data, text)

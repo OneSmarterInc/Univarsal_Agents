@@ -40,28 +40,30 @@ class AIError(Exception):
     def public_message(self):
         if self.reason == 'context' and self.field == 'CV length':
             return (
-                'This CV is too long for the configured model. Upload a shorter CV '
-                '(about 4 pages) or configure a model with a larger context.'
+                'This CV is too long for the configured model. Upload a shorter CV (about 4 pages) '
+                'or ask the service owner to configure a model with a larger context.'
             )
         return {
-            'context': 'The document is too long for the configured model context.',
-            'configuration': 'The model provider is not configured correctly.',
-            'connection': 'The model server could not be reached.',
-            'timeout': 'The model took too long to answer.',
-            'length': 'The model answer exceeded its limit.',
-            'format': 'The model returned an answer in an unexpected format.',
-            'identity_ambiguous': 'The document owner name could not be resolved reliably.',
-            'quality': 'The model answer failed the content or evidence checks.',
-            'capability': 'The model server does not support the required answer format.',
+            'context': 'This request exceeds the configured model context. Use a shorter document or ask the service owner to configure a larger context.',
+            'configuration': 'The model provider is not configured correctly. Please contact the service owner.',
+            'connection': 'The service could not connect to the configured model. Please retry or contact the service owner.',
+            'timeout': 'The configured model timed out. Please retry.',
+            'length': 'The model response exceeded its limit. Please shorten the request or document.',
+            'format': 'The configured model returned an unsupported response format. Please retry or contact the service owner.',
+            'identity_ambiguous': 'The document owner name could not be resolved reliably. Upload a clearer document with the full name on one line.',
+            'quality': 'The model returned structured output but failed the expected content or evidence checks.',
+            'capability': 'The configured model endpoint does not support the required response format. Please contact the service owner.',
             'cancelled': 'The job was cancelled.',
         }.get(
             self.reason,
             {
-                401: 'The model provider rejected its API key.',
-                403: 'The model provider denied access.',
-                404: 'The model or its address was not found.',
-                429: 'The model provider is limiting requests. Retry shortly.',
-            }.get(self.status_code, 'The model provider is temporarily unavailable.'),
+                401: 'The configured model endpoint rejected its access key. Please contact the service owner.',
+                403: 'The configured model endpoint denied access. Please contact the service owner.',
+                404: 'The configured model endpoint or model was not found. Please contact the service owner.',
+                429: 'The configured model provider is rate-limiting requests. Please retry shortly.',
+            }.get(
+                self.status_code, 'The configured model provider is temporarily unavailable. Please retry.'
+            ),
         )
 
 

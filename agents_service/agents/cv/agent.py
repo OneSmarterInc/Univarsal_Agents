@@ -86,9 +86,9 @@ class CvAgent(Agent):
         def read_one(file, records, warnings):
             with stage('read'):
                 text = read_text(file.path, job.settings)
-            with stage('model'):
+            with stage('provider'):
                 response = ask_model(text, job.model)
-            with stage('check'):
+            with stage('validate'):
                 validate_response_size(response)
                 data, owners = checked_facts(response, text, warnings)
                 count = add_records(records, data, file)

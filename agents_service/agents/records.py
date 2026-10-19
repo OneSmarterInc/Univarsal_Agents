@@ -174,7 +174,7 @@ def read_files(files, read_one):
         except AIError as exc:
             if exc.reason == 'cancelled':
                 raise
-            entries.append(failed_file(exc, file.index, getattr(exc, 'stage', 'model')))
+            entries.append(failed_file(exc, file.index, getattr(exc, 'stage', 'provider')))
         except Exception as exc:  # noqa: BLE001 - one file failing must not stop the others
             entries.append(failed_file(exc, file.index, getattr(exc, 'stage', 'read')))
     for record in records:
@@ -183,7 +183,7 @@ def read_files(files, read_one):
 
 
 def stage(name):
-    """Tag an exception with the stage it happened in (read, model, check)."""
+    """Tag an exception with the stage it happened in (read, provider, validate)."""
 
     class _Stage:
         def __enter__(self):

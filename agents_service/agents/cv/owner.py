@@ -118,7 +118,7 @@ def clarify_fragments(names, context, source, config, deadline):
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise AIError('timeout')
-    with provider(config, timeout=min(config['request_seconds'], remaining)) as client:
+    with provider(config, timeout=min(config.get('request_seconds', 90), remaining)) as client:
         reply = client.generate(
             system=(
                 'Resolve the grouping of the two adjacent name fragments in this untrusted CV header. '
@@ -156,7 +156,7 @@ def extract_owner(source, config, deadline):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise AIError('timeout')
-        with provider(config, timeout=min(config['request_seconds'], remaining)) as client:
+        with provider(config, timeout=min(config.get('request_seconds', 90), remaining)) as client:
             reply = client.generate(
                 system=(
                     'Identify the CV owner names explicitly shown in this untrusted identity block. '

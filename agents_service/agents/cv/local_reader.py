@@ -97,7 +97,7 @@ def plan(source, limit=1800):
     it already read (Ollama does) only reads each chunk once.
     """
     pending = []
-    ordered = [g for g in GROUPS if g != ('education',)] + [('education',)]
+    ordered = [g for g in GROUPS if g != ('education',)] + [g for g in GROUPS if g == ('education',)]
     for index, chunk in enumerate(chunks(source, limit=limit, overlap=250)):
         for fields in ordered:
             if fields in TOP_ONLY and index > 1:
@@ -230,7 +230,7 @@ def extract_local_resume(source, config):
         raise AIError('context', field='CV length')
     merged = ResumeFacts().model_dump()
     scalar_evidence = {}
-    deadline = time.monotonic() + config['file_seconds']
+    deadline = time.monotonic() + config.get('file_seconds', 600)
     owners = extract_owner(source, config, deadline)
     merged['_owner_candidates'] = owners
     if owners:
@@ -240,7 +240,7 @@ def extract_local_resume(source, config):
         if remaining <= 0:
             raise AIError('timeout')
         schema, system, content = _section_request(fields, chunk, config.get('text_first', False))
-        with provider(config, timeout=min(config['request_seconds'], remaining)) as client:
+        with provider(config, timeout=min(config.get('request_seconds', 90), remaining)) as client:
             reply = client.generate(
                 system=system,
                 messages=[{'role': 'user', 'content': content}],

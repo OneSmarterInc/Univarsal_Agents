@@ -94,7 +94,7 @@ def _request(fields, chunk, config, deadline):
             return None
         schema = source_jobs.selection_schema(chunk)
         system = source_jobs.SYSTEM
-    with provider(config, timeout=min(config['request_seconds'], remaining)) as client:
+    with provider(config, timeout=min(config.get('request_seconds', 90), remaining)) as client:
         reply = client.generate(
             system=system,
             messages=[
@@ -141,7 +141,7 @@ def extract_local(source, config):
     if len(pending) > MAX_REQUESTS:
         raise AIError('context')
     merged = ImageObservation().model_dump()
-    deadline = time.monotonic() + config['file_seconds']
+    deadline = time.monotonic() + config.get('file_seconds', 600)
     for fields, chunk in pending:
         checked = _request(fields, chunk, config, deadline)
         if checked is None:
