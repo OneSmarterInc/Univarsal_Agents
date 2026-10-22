@@ -245,7 +245,9 @@ def try_agent(args):
         request = {'files': files, 'data': {'fields': args.fields} if args.fields else {}}
     else:
         try:
-            data = json.loads(Path(args.data_file).read_text() if args.data_file else args.data)
+            data = json.loads(
+                Path(args.data_file).read_text(encoding='utf-8-sig') if args.data_file else args.data
+            )
         except (OSError, ValueError) as exc:
             print(f'The data is not valid JSON: {exc}', file=sys.stderr)
             return 2
@@ -278,6 +280,9 @@ def try_agent(args):
 
 def run_check():
     root = Path(__file__).resolve().parents[2]
+    if not (root / 'tests').is_dir():
+        print('agents check runs from a source checkout (git clone + pip install -e ".[test]").')
+        return 2
     steps = [
         [sys.executable, '-m', 'ruff', 'check', 'agents_service', 'tests'],
         [sys.executable, '-m', 'ruff', 'format', '--check', 'agents_service', 'tests'],

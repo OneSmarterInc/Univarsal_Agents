@@ -66,12 +66,15 @@ class OigInput(BaseModel):
 
     @model_validator(mode='after')
     def something_to_search(self):
-        if (
-            not (self.full_name or '').strip()
-            and not self.npi
-            and not any(n.strip() for n in self.previous_names)
-        ):
+        names = [n for n in [self.full_name or '', *self.previous_names] if n.strip()]
+        if not names and not self.npi:
             raise ValueError('give a name or an NPI')
+        for name in names:
+            # A last name of two letters or more and something for the first name (a word or
+            # an initial): the list is searched on both, so "Smith" alone or "J K" finds nothing.
+            tokens = ''.join(ch if ch.isalnum() else ' ' for ch in name).split()
+            if len(tokens) < 2 or not any(len(t) > 1 for t in tokens):
+                raise ValueError('each name needs a first name (or initial) and a last name')
         return self
 
 
@@ -129,9 +132,18 @@ class OigAgent(Agent):
 
 def _records(references, current):
     """(rows, info) of the list this worker holds, reloading it when a new one was loaded."""
-    if _LOADED['sha256'] != current['sha256']:
-        with references.local_copy(LIST) as (path, info):
-            rows = read_csv(Path(path).read_bytes())
+    held = _LOADED['info']
+    if held is None or (held['sha256'], held['loaded_at']) != (current['sha256'], current['loaded_at']):
+        # Reloaded on a new file and also on the same file loaded again (a corrected --as-of).
+        for attempt in (1, 2):
+            try:
+                with references.local_copy(LIST) as (path, info):
+                    rows = read_csv(Path(path).read_bytes())
+                break
+            except Exception:  # noqa: BLE001 - local or S3: the file was replaced while being read
+                if attempt == 2:
+                    raise
+                # A new list replaced the file while it was being read: read the current one.
         _LOADED.update(sha256=info['sha256'], records=rows, info=info)
     return _LOADED['records'], _LOADED['info']
 

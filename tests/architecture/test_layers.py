@@ -63,8 +63,16 @@ def test_only_ai_talks_to_a_model():
 def test_only_lookups_call_outside_sources_from_agents():
     """Agents call outside sources through lookups/http.py (time limits, no keys in logs)."""
     for path in (PACKAGE / 'agents').rglob('*.py'):
-        text = path.read_text()
-        assert 'import httpx' not in text and 'import requests' not in text, path
+        for module in imports_of(path):
+            top = module.split('.')[0]
+            assert top not in ('httpx', 'requests', 'urllib3', 'aiohttp'), f'{path.name} imports {module}'
+
+
+def test_agents_never_import_the_wiring_or_the_cli():
+    for path in (PACKAGE / 'agents').rglob('*.py'):
+        for module in imports_of(path):
+            bad = module.startswith(('agents_service.cli', 'agents_service.services'))
+            assert not bad, f'{path.name} imports {module}'
 
 
 def test_only_storage_touches_s3():

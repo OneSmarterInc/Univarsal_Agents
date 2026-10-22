@@ -29,7 +29,8 @@ FIELDS = {
     'state': ('exclusionPrimaryAddress.stateOrProvinceCode', 'exclusionPrimaryAddress.countryCode'),
 }
 NAME_PARTS = ('prefix', 'firstName', 'middleName', 'lastName', 'suffix')
-PAGE_SIZE = 50
+# GSA allows 1 to 10 records per page.
+PAGE_SIZE = 10
 
 
 class Unreadable(Exception):

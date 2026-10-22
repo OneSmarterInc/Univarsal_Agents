@@ -54,11 +54,14 @@ class Exclusion:
     last_words: set = field(default_factory=set)
     first_words: set = field(default_factory=set)
     business_words: set = field(default_factory=set)
+    first_initial: str = ''
 
     def __post_init__(self):
         self.last_words = name_words(self.last_name)
         self.first_words = name_words(self.first_name)
         self.business_words = name_words(self.business_name)
+        letters = [ch for ch in self.first_name.casefold() if ch.isalpha()]
+        self.first_initial = letters[0] if letters else ''
 
     def display_name(self):
         return self.business_name or ' '.join(
@@ -143,7 +146,7 @@ class Hit:
 def find(records, aliases, birth_date, npi):
     """Records that could be this person. Over-inclusive on purpose: a missed exclusion
     is the one failure a screen exists to prevent; extra hits go to a person to check."""
-    wanted = {word for alias in aliases for word in name_words(alias)}
+    wanted = Wanted(aliases)
     found = []
     for record in records:
         if record.reinstated_on:
@@ -159,12 +162,36 @@ def find(records, aliases, birth_date, npi):
     return found
 
 
+class Wanted:
+    """The names searched for, as words, initials given on their own, and first letters."""
+
+    def __init__(self, aliases):
+        tokens = [t for alias in aliases for t in _tokens(alias)]
+        self.words = {t for t in tokens if len(t) > 1}
+        self.initials_given = {t for t in tokens if len(t) == 1}
+        self.first_letters = {t[0] for t in tokens}
+
+
+def _tokens(name):
+    return ''.join(ch if ch.isalnum() else ' ' for ch in str(name or '').casefold()).split()
+
+
 def _name_matches(record, wanted):
+    """Over-inclusive: the last name must match; the first name matches by word or initial.
+
+    The list writes some first names as an initial ("J"), and some people have no first
+    name at all; both are still found. An initial given in the search ("J Doe") matches a
+    listed first name starting with it.
+    """
     if record.business_name:
-        return bool(record.business_words & wanted)
-    if not record.last_words or not record.first_words:
+        return bool(record.business_words & wanted.words)
+    if not record.last_words or not record.last_words & wanted.words:
         return False
-    return bool(record.last_words & wanted) and bool(record.first_words & wanted)
+    if record.first_words:
+        return bool(record.first_words & wanted.words) or record.first_initial in wanted.initials_given
+    if record.first_initial:  # the list gives only an initial
+        return record.first_initial in wanted.first_letters
+    return True  # no first name on the list
 
 
 def corroborated_on(hits):

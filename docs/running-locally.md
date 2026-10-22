@@ -75,18 +75,30 @@ agents try --agent linkedin --key <linkedin key> --file shot1.png --file shot2.p
 
 **Level 1b: the lookup agents (NPPES, OIG, SAM)**
 
-Add `nppes,oig,sam` to `AGENTS_ENABLED_AGENTS` in `.env` and restart. Then:
+They are on branch `lookup-agents` until it is merged into `production-ready`:
 
 ```powershell
+git fetch origin
+git switch lookup-agents
+pip install -e ".[test]"
+agents init-db
+```
+
+`init-db` adds two tables (an answer cache and reference files); nothing is lost. Add
+`nppes,oig,sam` to `AGENTS_ENABLED_AGENTS` in `.env` and restart. PowerShell changes quotes
+inside `--data '...'`, so put the JSON in a UTF-8 file and use `--data-file`:
+
+```powershell
+Set-Content -Encoding utf8 npi.json '{"npi": "1104130236"}'
 agents create-key --project test --agent nppes
-agents try --agent nppes --key <key> --data '{\"npi\": \"1104130236\"}'
+agents try --agent nppes --key <key> --data-file npi.json
 agents tool oig load --file D:\test\UPDATED.csv --as-of 2026-10-01
-agents try --agent oig --key <oig key> --data '{\"full_name\": \"First Last\"}'
+Set-Content -Encoding utf8 person.json '{"full_name": "First Last"}'
+agents try --agent oig --key <oig key> --data-file person.json
 ```
 
 SAM needs `AGENTS_SAM_API_KEY` in `.env`, and a free key allows only 10 calls a day: plan
-the tests first. On PowerShell, quotes inside `--data` need a backslash as shown; or put
-the JSON in a file and use `--data-file person.json`. Details: [Lookup agents](lookup-agents.md).
+the tests first. Details: [Lookup agents](lookup-agents.md).
 
 **Level 2: several projects at once**
 

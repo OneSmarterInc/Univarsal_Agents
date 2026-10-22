@@ -17,6 +17,13 @@
   limit, a cache of outside answers and reference files (migration 0003),
   `agents tool <agent> <command>`, and each agent's state in `/health/ready`.
 - httpx's own request logging (full addresses, so any key in them) is switched off.
+- Second review: SAM sends only the first and last name words (SAM.gov ANDs every word, so
+  a middle name or title could hide a listed person) and pages of 10 (GSA's maximum);
+  an optional per-project SAM daily limit; NPPES treats an answer it cannot read as
+  `source_unreadable`, never as "no such NPI"; OIG finds listings with only an initial
+  or no first name and refuses names it cannot search ("Smith" alone); a corrected OIG
+  publication date is picked up; `/health/ready` shows only ok / needs setup (the reason
+  is in `GET /v1/agents`); `--data-file` reads UTF-8 (with or without BOM).
 
 ## 1.1.0 — fixes from the second review (October 2026)
 

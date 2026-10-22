@@ -106,8 +106,13 @@ def ask_cms(npi, config, transport=None):
         raise JobFailed('source_unavailable' if exc.kind in ('unavailable', 'rate_limited') else 'source_rejected',
                         retry=exc.kind in ('unavailable', 'rate_limited')) from None  # fmt: skip
     # NPPES answers a bad question with 200 and an "Errors" list: never read as "no such NPI".
-    if not isinstance(body, dict) or body.get('Errors'):
+    if isinstance(body, dict) and (body.get('Errors') or body.get('errors')):
         raise JobFailed('source_rejected')
+    # Only a clear answer counts: a list of none or one record. Anything else (no list, two
+    # records for one NPI) is unreadable, never "CMS has no record of this number".
+    results = body.get('results') if isinstance(body, dict) else None
+    if not isinstance(results, list) or len(results) > 1 or (results and not isinstance(results[0], dict)):
+        raise JobFailed('source_unreadable')
     return body
 
 

@@ -41,6 +41,14 @@ def check_definition(agent):
         problems.append('data agents need a data_model')
     if not agent.sections:
         problems.append('sections: at least one')
+    if getattr(agent, 'settings_model', None) is not None:
+        from agents_service.core.config import Settings
+
+        # AGENTS_<NAME>_... must not reach the service's own settings (AGENTS_MODEL_..., AGENTS_S3_...).
+        if any(field.startswith(agent.name + '_') or field == agent.name for field in Settings.model_fields):
+            problems.append(
+                f'name "{agent.name}" clashes with the service settings AGENTS_{agent.name.upper()}_...'
+            )
     if problems:
         raise ValueError(f'Agent "{agent.name}" is not defined correctly: ' + '; '.join(problems))
 

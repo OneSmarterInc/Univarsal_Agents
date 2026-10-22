@@ -28,9 +28,20 @@ agents worker --agents cv,linkedin
 agents worker --agents nppes,oig,sam
 ```
 
-`GET /health/ready` shows each agent's state under `agents`, for example
-`"sam": "not configured: AGENTS_SAM_API_KEY"`. One agent not being ready never makes the
-whole service "not ready".
+`GET /health/ready` (no key needed) shows each agent as `ok` or `needs setup`. The
+reason, for example `not configured: AGENTS_SAM_API_KEY`, is in `state` of each agent in
+`GET /v1/agents` (needs a key). One agent not being ready never makes the whole service
+"not ready".
+
+**Sending JSON from Windows.** PowerShell changes quotes inside `--data '...'`, so on
+Windows put the JSON in a file (save it as UTF-8) and use `--data-file`:
+
+```powershell
+Set-Content -Encoding utf8 person.json '{"full_name": "Amara Okafor", "date_of_birth": "1984-02-11"}'
+agents try --agent oig --key <key> --data-file person.json
+```
+
+On Linux and macOS `--data '{"npi": "1234567893"}'` works as shown below.
 
 ## NPPES
 
@@ -63,14 +74,16 @@ reads it on its next OIG job (about 4 s and 130 MB for 84,000 rows; then about 5
 screen). Until a list is loaded, OIG jobs fail with `not_configured`.
 
 Load the new list every month. A list older than `AGENTS_OIG_MAX_AGE_DAYS` (45) still
-screens, but every answer warns, and `/health/ready` shows its age.
+screens, but every answer warns, and `agents tool oig status` and `GET /v1/agents` show its age.
 
 ```
 agents try --agent oig --key <key> --data '{"full_name": "Amara Okafor", "date_of_birth": "1984-02-11"}'
 ```
 
 Send what you have: `full_name`, `previous_names` (an exclusion is listed under the
-name held at the time), `date_of_birth`, `npi`. A name alone can only reach
+name held at the time), `date_of_birth`, `npi`. Each name needs a first name (or an
+initial) and a last name; "Smith" alone is refused (422), because the list is searched on
+both. A listing with only an initial ("DOE, J") or no first name is still found. A name alone can only reach
 `possible_match`; a matching date of birth or NPI makes it a `match`; a different date
 of birth rules a record out.
 
@@ -81,13 +94,18 @@ Get a key: sam.gov, Account Details, Public API Key. A personal key allows only
 
 ```
 AGENTS_SAM_API_KEY=<key>
-AGENTS_SAM_DAILY_LIMIT=10          # shared by every worker; each page of 50 is one call
+AGENTS_SAM_DAILY_LIMIT=10          # shared by every worker; each page of 10 is one call
+AGENTS_SAM_PROJECT_DAILY_LIMIT=    # optional: calls one project may use per day
 AGENTS_SAM_CACHE_HOURS=24          # the same name is asked once a day
-AGENTS_SAM_MAX_PAGES=4             # more matches than 4 x 50 is source_incomplete
+AGENTS_SAM_MAX_PAGES=5             # more matches than 5 x 10 is source_incomplete
 AGENTS_SAM_MAPPING_VERIFIED=false  # set true after checking one live answer
 ```
 
 The key is sent only to SAM.gov. It is never logged or stored in a result.
+
+SAM.gov joins the words of a name search with AND, so only the first and last name
+words are sent ("Dr Jane Marie Smith Jr" is searched as "jane smith"); every candidate
+is then compared with the full name here. GSA serves at most 10 records per page.
 
 **Before relying on SAM:** the field mapping comes from GSA's published sample. Make
 one live call with a name from https://sam.gov/search/?index=ex, check the hit's name,

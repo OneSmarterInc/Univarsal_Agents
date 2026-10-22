@@ -323,14 +323,20 @@ def test_sam_through_the_service(tmp_path, monkeypatch):
 
     def fake_get_json(url, **kwargs):
         calls.append(kwargs['params']['exclusionName'])
-        return page(PERSON) if 'Amara' in kwargs['params']['exclusionName'] else page()
+        return page(PERSON) if 'amara' in kwargs['params']['exclusionName'] else page()
 
     monkeypatch.setattr(sam_agent, 'get_json', fake_get_json)
     services = build(make_settings(tmp_path, enabled_agents='cv,sam'))
     services.db.upgrade()
     client = TestClient(create_app(services))
-    assert client.get('/health/ready').json()['agents']['sam'] == 'not configured: AGENTS_SAM_API_KEY'
+    assert client.get('/health/ready').json()['agents']['sam'] == 'needs setup'
     token = create_key(services.db, services.settings.key_pepper, 'kormic', 'sam', 'sam')[1]
+    state = next(
+        a['state']
+        for a in client.get('/v1/agents', headers=auth(token)).json()['agents']
+        if a['name'] == 'sam'
+    )
+    assert state == 'not configured: AGENTS_SAM_API_KEY'
     job = client.post(
         '/v1/sam/jobs', headers=auth(token), json={'data': {'full_name': 'Amara Okafor'}}
     ).json()
@@ -348,5 +354,52 @@ def test_sam_through_the_service(tmp_path, monkeypatch):
     assert results[1]['state'] == 'done'  # cached: no call
     assert results[2]['result']['records'][0]['value'] == 'no_match'
     assert results[3]['error']['code'] == 'daily_limit_reached'  # third call of the day, limit 2
-    assert calls == ['Amara Okafor', 'Rowan Vandermeer']
+    assert calls == ['amara okafor', 'rowan vandermeer']  # first and last name words only
     assert KEY not in json.dumps(results)
+
+
+# --- second review: how SAM.gov searches ------------------------------------------------
+
+
+def test_only_first_and_last_name_words_are_sent():
+    from agents_service.agents.sam.agent import search_terms
+
+    assert search_terms('Jane Marie Smith') == 'jane smith'  # SAM.gov ANDs every word sent
+    assert search_terms('Dr. Jane Smith Jr.') == 'jane smith'
+    assert search_terms('Okafor, Amara') == 'okafor amara'
+    assert search_terms('Smith') == 'smith' and search_terms('J. K.') == ''
+
+
+def test_a_middle_name_never_reaches_sam_and_the_record_is_still_found():
+    sent = []
+
+    def handler(request):
+        sent.append((request.url.params['exclusionName'], request.url.params['size']))
+        return httpx.Response(200, json=page(PERSON))  # listed as AMARA OKAFOR
+
+    found, _ = search(Job(), 'Dr Amara Chidinma Okafor', settings(cache_hours=0), sam(handler))
+    record, _ = screen(found, ['Dr Amara Chidinma Okafor'], '', NOW, False)
+    assert sent == [('amara okafor', '10')]  # GSA allows 1-10 per page
+    assert record['details']['outcome'] == 'possible_match'
+
+
+def test_one_project_cannot_use_up_sam_for_everyone():
+    class ProjectJob(Job):
+        project = 'busy'
+
+        def __init__(self):
+            super().__init__(quota=100)
+            self.counts = {}
+
+        def use_quota(self, name, limit):
+            self.counts[name] = self.counts.get(name, 0) + 1
+            return self.counts[name] <= limit
+
+    job = ProjectJob()
+    config = settings(cache_hours=0, project_daily_limit=2)
+    handler = sam(lambda r: httpx.Response(200, json=page()))
+    search(job, 'Amara Okafor', config, handler)
+    search(job, 'Rowan Vandermeer', config, handler)
+    with pytest.raises(JobFailed) as caught:
+        search(job, 'Kim Lee', config, handler)
+    assert caught.value.code == 'daily_limit_reached' and job.counts['project:busy'] == 3

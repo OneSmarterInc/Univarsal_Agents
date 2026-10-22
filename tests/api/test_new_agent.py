@@ -115,3 +115,16 @@ def test_a_wrongly_defined_agent_is_refused_at_start():
 def test_every_available_agent_is_defined_correctly():
     for name in registry.AVAILABLE:
         registry.load(name)
+
+
+def test_an_agent_with_settings_cannot_take_a_service_settings_name():
+    from agents_service.agents.sam.agent import SamAgent
+
+    for name in ('model', 's3', 'key'):
+
+        class Clash(SamAgent):
+            pass
+
+        Clash.name, Clash.key_prefix = name, 'clash'
+        with pytest.raises(ValueError, match='clashes with the service settings'):
+            registry.check_definition(Clash())

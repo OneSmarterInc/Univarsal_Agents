@@ -17,6 +17,7 @@ checked, a rejected key or a used-up daily limit end the job with an error
 code. They never come back as no_match.
 """
 
+import re
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
@@ -75,8 +76,11 @@ class SamSettings(BaseModel):
     timeout_seconds: float = Field(default=15, gt=0, le=120)
     daily_limit: int = Field(default=10, ge=1)
     cache_hours: float = Field(default=24, ge=0, le=24 * 7)
-    # Pages of 50 read per name; every page is one call against the daily limit.
-    max_pages: int = Field(default=4, ge=1, le=20)
+    # Pages of 10 read per name; every page is one call against the daily limit.
+    max_pages: int = Field(default=5, ge=1, le=100)
+    # Calls one project may use per day (empty = no limit of its own beyond daily_limit),
+    # so one busy project cannot use up SAM.gov for every other project.
+    project_daily_limit: int | None = Field(default=None, ge=1)
     # Set to true once one live answer has been checked against the field mapping.
     mapping_verified: bool = False
 
@@ -105,7 +109,7 @@ class SamAgent(Agent):
         config = job.agent_settings
         data = job.data
         aliases = list(dict.fromkeys([*data.get('previous_names', []), data['full_name']]))
-        aliases = [a for a in aliases if name_words(a)]
+        aliases = [a for a in aliases if search_terms(a)]
         npi = data.get('npi') or ''
         candidates, fetched = [], []
         for alias in aliases:
@@ -117,20 +121,44 @@ class SamAgent(Agent):
         return AgentResult(records=[record], warnings=warnings)
 
 
+# Not part of a listed name: a search for "Dr Jane Smith" must not need "Dr" in the record.
+NOT_NAMES = {
+    'dr', 'mr', 'mrs', 'ms', 'miss', 'mx', 'prof', 'rev', 'sir', 'jr', 'sr', 'ii', 'iii', 'iv',
+    'md', 'do', 'rn', 'np', 'pa', 'phd', 'dds', 'dmd', 'lpn', 'aprn', 'crna', 'esq',
+}  # fmt: skip
+
+
+def search_terms(alias):
+    """What is sent to SAM.gov for one name: its first and last name words only.
+
+    SAM.gov puts AND between the words of exclusionName, so every word sent must be in
+    the listed name. A middle name, a title or a suffix the listing does not carry would
+    hide the person; the full name is still compared locally on every candidate.
+    """
+    words = [w for w in re.findall(r'[^\W\d_]+', alias.casefold()) if len(w) > 1 and w not in NOT_NAMES]
+    if not words:
+        return ''
+    return words[0] if len(words) == 1 else f'{words[0]} {words[-1]}'
+
+
 def search(job, alias, config, transport=None):
     """(exclusions, fetched_at) for one name: from the cache, or every page from SAM.gov."""
-    # The cache key is the exact text sent (spaces and case aside), so two wordings that
-    # SAM.gov might answer differently never share an answer.
-    question = {'name': ' '.join(alias.split()).casefold()}
+    terms = search_terms(alias)
+    # The cache key is exactly what is sent, so two searches never share an answer by accident.
+    question = {'name': terms}
     cached = job.cache.get(question) if config.cache_hours else None
     if cached is not None:
         return [SamExclusion.from_summary(s) for s in cached['records']], cached['fetched_at']
     found, page = [], 0
     while True:
+        if config.project_daily_limit and not job.use_quota(
+            f'project:{job.project}', config.project_daily_limit
+        ):
+            raise JobFailed('daily_limit_reached')
         if not job.use_quota('search', config.daily_limit):
             raise JobFailed('daily_limit_reached')
         try:
-            records, total = read_page(_ask(alias, page, config, transport))
+            records, total = read_page(_ask(terms, page, config, transport))
         except Unreadable:
             raise JobFailed('source_unreadable') from None
         found.extend(records)

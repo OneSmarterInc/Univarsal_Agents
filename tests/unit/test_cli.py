@@ -40,3 +40,19 @@ def test_try_sends_data_as_json(monkeypatch, capsys):
 
 def test_try_refuses_bad_json(capsys):
     assert cli.main(['try', '--agent', 'x', '--key', 'k', '--data', '{not json']) == 2
+
+
+def test_try_data_file_reads_utf8_with_or_without_bom(monkeypatch, tmp_path):
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(400, json={'error': {'code': 'x'}})
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, 'Client', lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    for text in ('﻿{"full_name": "José Núñez"}', '{"full_name": "José Núñez"}'):
+        path = tmp_path / 'person.json'
+        path.write_bytes(text.encode('utf-8'))
+        cli.main(['try', '--agent', 'oig', '--key', 'k', '--data-file', str(path)])
+    assert [s['data']['full_name'] for s in sent] == ['José Núñez', 'José Núñez']

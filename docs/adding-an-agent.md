@@ -51,9 +51,9 @@ An agent is one folder. The API addresses, keys, limits, job line, usage and
    | The agent's own settings | `settings_model = MySettings` (pydantic). Read from `AGENTS_<AGENT>_<FIELD>`; given to the job as `job.agent_settings`. Missing ones fail jobs as `not_configured`. Use `SecretStr` for keys |
    | A daily limit of the source | `job.use_quota('search', limit)`: shared by every worker |
    | Reuse answers | `job.cache.get(question)` / `job.cache.put(question, value, seconds)` |
-   | A file an operator loads (a published list) | `job.references.info(name)`, `job.references.local_copy(name)`, and a `tools()` command that calls `context.references.put(...)` |
+   | A file an operator loads (a published list) | `job.references.info(name)`, `job.references.local_copy(name)` (gives `(path, info)` of the same file), and a `tools()` command that calls `context.references.put(name, raw_bytes, '.csv', as_of='YYYY-MM-DD', details={...})`. Names: lower case letters, digits and `_` |
    | A CLI command | `tools()` returns `{'load': Tool(help, add_arguments, run)}`: `agents tool <agent> load ...` |
-   | Say what is missing | `readiness()` returns `'ok'` or a short reason, shown in `/health/ready` |
+   | Say what is missing | `readiness()` returns `'ok'` or a short reason: `ok` / `needs setup` in `/health/ready`, the reason in `GET /v1/agents` |
    | Rules for list searches | `lookups.screening.screen_outcome()`: a name alone is never a `match` |
 
    The registry checks the definition at start (name, key prefix, input kind, data model,
@@ -76,7 +76,10 @@ An agent is one folder. The API addresses, keys, limits, job line, usage and
 
 6. **Give keys** to the projects that need it: `agents create-key --project hr --agent certificate`.
    Try it: `agents try --agent certificate --key <key> --file x.pdf`, or for a lookup agent
-   `agents try --agent npi_lookup --key <key> --data '{"number": "1234567893"}'`.
+   `agents try --agent npi_lookup --key <key> --data '{"number": "1234567893"}'` (on Windows,
+   put the JSON in a file and use `--data-file`). An agent with its own settings may not be
+   named like the service's settings (`model`, `s3`, `key`, ...): its `AGENTS_<NAME>_...`
+   would reach them, so the registry refuses it.
 
 7. Run `agents check`, add a line to `docs/changelog.md`, and optionally add cases to
    `accuracy/cases.json`.

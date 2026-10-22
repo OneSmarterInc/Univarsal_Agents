@@ -159,6 +159,7 @@ def test_a_file_that_is_not_the_leie_is_refused():
 @pytest.fixture
 def oig_services(tmp_path, monkeypatch):
     monkeypatch.setitem(oig._LOADED, 'sha256', None)
+    monkeypatch.setitem(oig._LOADED, 'info', None)
     services = build(make_settings(tmp_path, enabled_agents='cv,oig'))
     services.db.upgrade()
     return services
@@ -172,7 +173,13 @@ def test_oig_needs_a_loaded_list_then_screens_through_the_service(
     services = oig_services
     client = TestClient(create_app(services))
     token = create_key(services.db, services.settings.key_pepper, 'kormic', 'oig', 'oig')[1]
-    assert client.get('/health/ready').json()['agents']['oig'].startswith('no exclusion list loaded')
+    assert client.get('/health/ready').json()['agents']['oig'] == 'needs setup'
+    state = next(
+        a['state']
+        for a in client.get('/v1/agents', headers=auth(token)).json()['agents']
+        if a['name'] == 'oig'
+    )
+    assert state.startswith('no exclusion list loaded')
     job = client.post(
         '/v1/oig/jobs', headers=auth(token), json={'data': {'full_name': 'Amara Okafor'}}
     ).json()
@@ -266,3 +273,42 @@ def test_the_list_and_its_date_come_from_the_same_file(oig_services, monkeypatch
     monkeypatch.undo()
     record = services.jobs.get(principal, job['id'])['result']['records'][0]
     assert (record['value'], record['details']['source_as_of']) == ('no_match', '2026-10-01')
+
+
+# --- second review --------------------------------------------------------------------------
+
+
+def test_a_listed_initial_or_missing_first_name_is_still_found():
+    assert run([excluded(last_name='Doe', first_name='J')], 'John Doe')[0]['outcome'] == 'possible_match'
+    assert run([excluded(last_name='Doe', first_name='J.')], 'J Doe')[0]['outcome'] == 'possible_match'
+    assert run([excluded(last_name='Doe', first_name='')], 'John Doe')[0]['outcome'] == 'possible_match'
+    assert run([excluded(last_name='Doe', first_name='John')], 'J Doe')[0]['outcome'] == 'possible_match'
+    assert run([excluded(last_name='Doe', first_name='Kate')], 'John Doe')[0]['outcome'] == 'no_match'
+    assert run([excluded(last_name='Doe', first_name='K')], 'John Doe')[0]['outcome'] == 'no_match'
+
+
+def test_a_name_that_cannot_be_searched_is_refused():
+    for bad in ('Smith', 'J K', 'J'):
+        with pytest.raises(ValueError):
+            OigInput(full_name=bad)
+    with pytest.raises(ValueError):
+        OigInput(full_name='Amara Okafor', previous_names=['Smith'])
+    assert OigInput(full_name='J Doe').full_name == 'J Doe'
+    assert OigInput(npi='1104130236').full_name is None
+
+
+def test_reloading_the_same_file_with_a_corrected_date_is_used(oig_services):
+    from agents_service.core.keys import Principal
+
+    services = oig_services
+    refs = References(services.db, services.storage, 'oig')
+    principal = Principal('key_k000000000000000', 'k', 'oig')
+    refs.put('leie', CSV.encode(), '.csv', '2020-01-01')  # wrong date given
+    services.jobs.create(principal, 'oig', data={'full_name': 'Amara Okafor'})
+    runner.run(services, once=True)
+    refs.put('leie', CSV.encode(), '.csv', '2026-10-01')  # same file, corrected date
+    job = services.jobs.create(principal, 'oig', data={'full_name': 'Amara Okafor'})
+    runner.run(services, once=True)
+    result = services.jobs.get(principal, job['id'])['result']
+    assert result['records'][0]['details']['source_as_of'] == '2026-10-01'
+    assert not any('days old' in w for w in result['warnings'])

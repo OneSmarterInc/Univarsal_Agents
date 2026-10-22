@@ -271,13 +271,22 @@ def test_job_errors_tell_the_project_what_happened(probe_services):
 
 def test_readiness_shows_each_agent_without_failing_the_service(probe_services):
     client = TestClient(create_app(probe_services))
+    token = create_key(probe_services.db, probe_services.settings.key_pepper, 'p', 'probe', 'probe')[1]
+
+    def state():
+        return next(
+            a['state']
+            for a in client.get('/v1/agents', headers=auth(token)).json()['agents']
+            if a['name'] == 'probe'
+        )
+
     body = client.get('/health/ready').json()
-    assert body['status'] == 'ready' and body['agents']['cv'] == 'ok'
-    assert body['agents']['probe'] == 'no list loaded (agents tool probe load)'
+    assert body['status'] == 'ready' and body['agents'] == {'cv': 'ok', 'probe': 'needs setup'}
+    assert state() == 'no list loaded (agents tool probe load)'  # the reason needs a key
     probe_services.settings.agent_settings['probe'] = {}
     response = client.get('/health/ready')
-    assert response.status_code == 200
-    assert response.json()['agents']['probe'] == 'not configured: AGENTS_PROBE_API_KEY'
+    assert response.status_code == 200 and 'AGENTS_' not in response.text
+    assert state() == 'not configured: AGENTS_PROBE_API_KEY'
 
 
 def test_agent_command_loads_reference_data(tmp_path, monkeypatch, capsys):

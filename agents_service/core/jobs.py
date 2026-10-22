@@ -375,7 +375,12 @@ class JobLine:
         ).scalars()
         ahead = mine + sum(min(count, mine + 1) for count in others)
         workers = (
-            s.scalar(select(func.count(func.distinct(Job.lease_owner))).where(Job.state == 'running')) or 1
+            s.scalar(
+                select(func.count(func.distinct(Job.lease_owner))).where(
+                    Job.state == 'running', Job.agent == job.agent
+                )
+            )
+            or 1
         )
         average = self.average_run_seconds(s, job.agent)
         return {'position': ahead + 1, 'estimated_wait_seconds': int((ahead + 1) * average / workers)}

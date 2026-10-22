@@ -5,7 +5,8 @@ instead of reading uploaded files, and follow docs/adding-an-agent.md.
 
 As written it is a working example with no outside call: it "looks up" the
 given number in a small built-in register. Replace `lookup` with the real call
-(httpx, with a timeout), keep `job.check_cancelled()` between calls.
+through `agents_service.lookups.http.get_json` (agents do not import httpx), and
+keep `job.check_cancelled()` between calls.
 """
 
 from datetime import UTC, datetime

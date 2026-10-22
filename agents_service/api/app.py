@@ -109,9 +109,11 @@ def create_app(services=None):
         body = {'status': 'ready' if ok else 'not_ready', 'checks': checks}
         if ok:
             # Shown, but never makes the whole service "not ready": one agent missing its
-            # setup must not take the other agents away from every project.
+            # setup must not take the other agents away from every project. No key is
+            # needed here, so only ok / needs setup; the reason is in GET /v1/agents.
             body['agents'] = {
-                name: agent_readiness(services, agent) for name, agent in services.agents.items()
+                name: 'ok' if agent_readiness(services, agent) == 'ok' else 'needs setup'
+                for name, agent in services.agents.items()
             }
         return JSONResponse(body, status_code=200 if ok else 503)
 
@@ -120,7 +122,10 @@ def create_app(services=None):
         principal_for(request)
         return {
             'api_version': API_VERSION,
-            'agents': [agent.describe(settings) for agent in services.agents.values()],
+            'agents': [
+                agent.describe(settings) | {'state': agent_readiness(services, agent)}
+                for agent in services.agents.values()
+            ],
         }
 
     @app.get('/v1/openapi.json')

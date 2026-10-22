@@ -90,9 +90,22 @@ def test_a_number_cms_does_not_have_is_an_answer_not_a_failure():
     assert list(by) == ['npi'] and 'no record' in warnings[0]
 
 
-def test_two_records_for_one_npi_are_not_chosen_between():
-    by, _ = read(body={'results': [RECORD, RECORD]})
-    assert by['npi'][0]['details']['found'] is False
+def test_an_answer_that_cannot_be_read_is_never_no_such_npi():
+    for body in (
+        {'results': [RECORD, RECORD]},
+        {'result_count': 1, 'data': [{}]},
+        {},
+        {'results': 'x'},
+        [],
+        {'results': [1]},
+    ):
+        with pytest.raises(JobFailed) as caught:
+            cms(lambda r, b=body: httpx.Response(200, json=b))()
+        assert caught.value.code == 'source_unreadable', body
+    assert cms(lambda r: httpx.Response(200, json={'result_count': 0, 'results': []}))() == {
+        'result_count': 0,
+        'results': [],
+    }
 
 
 # --- what the provider only typed in --------------------------------------------------
