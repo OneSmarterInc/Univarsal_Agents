@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.5 — facts the small model lost, recovered from the document (October 2026)
+
+The laptop's model (Qwen3 1.7B) often quotes the wrong line or invents a date, and the
+checks rightly drop those answers. Where the document itself shows the fact plainly, it
+is now read from the document. Every value is still a copy of the document's text.
+
+- **CV (reader cv/4):** one "Work Experience / Projects" section is read (a
+  "Title – Organisation" entry is a job, a title alone is a project); a date on its own
+  line above a title belongs to that title; "Current CGPA" is not a date; school boards
+  ("State Board") and "Secondary Education (10th Grade)" are education entries, with the
+  dates kept off the title; a summary the model copied with its own punctuation keeps
+  the CV's wording; a degree is never filed under other information.
+- **LinkedIn (reader linkedin/4):** the location is quoted from its own line (it was
+  dropped because the quote held the headline's "Intern"); a profile-card school keeps
+  only the school when the model adds a made-up degree or dates; a skill quoted from the
+  wrong line is quoted from its own; the mobile "top skills" page is read line by line.
+- Checked by replaying the saved model answers from the laptop run: the CV now gives all
+  3 education entries, the job and both projects; LinkedIn gives the school, location and
+  all 5 skills.
+
 ## 1.2.4 — reading fixes from the CV and LinkedIn laptop retest (October 2026)
 
 - **CV (reader cv/3):** a CV split into pieces is split at line starts. A piece used to

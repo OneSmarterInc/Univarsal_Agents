@@ -19,6 +19,12 @@ WORK_HEADING = re.compile(
     re.I,
 )
 PROJECT_HEADING = re.compile(r'^\s*(?:(?:key|selected|academic|personal)\s+)?projects?\s*:?\s*$', re.I)
+# One section for both: "WORK EXPERIENCE / PROJECTS", "Experience & Projects".
+COMBINED_HEADING = re.compile(
+    r'^\s*(?:(?:work|professional|relevant)\s+)?(?:experience|employment)\s*(?:/|&|and)\s*projects?\s*:?\s*$|'
+    r'^\s*projects?\s*(?:/|&|and)\s*(?:(?:work|professional)\s+)?experience\s*:?\s*$',
+    re.I,
+)
 SEPARATOR = re.compile(r'\s+[|·•–—]\s+|\s*\|\s*')
 AT = re.compile(r'^(.+?)\s+(?:at|@)\s+(.+)$')
 MAX_DESCRIPTION_LINES = 12
@@ -37,7 +43,7 @@ def _region(lines, heading):
     (a chunk can start in the middle of the section)."""
     region, state = [], None
     for index, line in enumerate(lines):
-        if heading.match(line):
+        if heading.match(line) or COMBINED_HEADING.match(line):
             state = 'in'
             continue
         if (
@@ -57,6 +63,14 @@ def _dates_in(source, start, end):
     return [m for m in date_candidates(source) if start <= m.start() and m.end() <= end]
 
 
+def _only_date(line):
+    """A line holding a date or a date range and nothing else."""
+    rest = line
+    for found in date_candidates(line):
+        rest = rest.replace(found.group(), ' ')
+    return bool(date_candidates(line)) and not re.search(r'[^\W\d_]', rest)
+
+
 def _starts_with_date(line):
     stripped = line.strip()
     return bool(stripped) and any(m.start() == 0 for m in date_candidates(stripped))
@@ -69,9 +83,16 @@ def _short_label(line):
 
 
 def _text_parts(line):
-    """Non-empty separator-delimited parts of a line that hold no date."""
-    parts = [p.strip() for p in SEPARATOR.split(line.strip())]
-    return [p for p in parts if p and not date_candidates(p)]
+    """Non-empty separator-delimited parts of a line, without their dates
+    ("Acme Labs Feb 2025" -> "Acme Labs"); a part that is only a date is left out."""
+    parts = []
+    for part in (p.strip() for p in SEPARATOR.split(line.strip())):
+        dates = date_candidates(part)
+        if dates:
+            part = part[: dates[0].start()].rstrip(' -–—:,(') if dates[0].start() else ''
+        if part and re.search(r'[^\W\d_]', part):
+            parts.append(part)
+    return parts
 
 
 def _title_employer_header(lines, i, allowed, parts):
@@ -101,8 +122,12 @@ def _headers(lines, ids, kind):
             continue
         if date_candidates(line):
             headers.append((i, i, parts))
-        elif i + 1 in allowed and _starts_with_date(lines[i + 1]):
+        elif i + 1 in allowed and _starts_with_date(lines[i + 1]) and not line.rstrip().endswith('.'):
+            # A sentence ending in "." is the last description line, not a title.
             headers.append((i, i + 1, parts))
+        elif i - 1 in allowed and _only_date(lines[i - 1]) and _short_label(line) and i - 1 > consumed:
+            # The date on its own line just above the title ("Dec 2024" / "Assistant").
+            headers.append((i - 1, i, parts))
         elif kind == 'work' and _title_employer_header(lines, i, allowed, parts):
             headers.append((i, i + 2, parts + _text_parts(lines[i + 1])[:1]))
         if headers and headers[-1][0] == i:
@@ -172,8 +197,14 @@ def layout_entries(source, kind):
         return None if headed and any(lines[i].strip() for i in ids) else []
     if _overlapping(headers):
         return None
+    combined = any(COMBINED_HEADING.match(line) for line in lines)
     records = []
     for number, header in enumerate(headers):
+        if combined and (len(header[2]) >= 2) != (kind == 'work'):
+            # One section for jobs and projects: a "Title – Organisation" entry is a
+            # job, an entry with a title only is a project. Each entry still ends
+            # where the next one starts, whichever kind that is.
+            continue
         following = headers[number + 1][0] if number + 1 < len(headers) else None
         description_ids = _description_ids(ids, lines, header[1], following)
         record = _record(source, lines, offsets, header, description_ids, kind)

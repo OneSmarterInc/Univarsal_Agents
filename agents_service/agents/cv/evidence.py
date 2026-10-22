@@ -4,8 +4,9 @@ import re
 
 from agents_service.agents.cv.owner import supported_owner
 from agents_service.agents.cv.schemas import ResumeFacts
+from agents_service.agents.cv.source_education import DEGREE
 from agents_service.ai.providers import AIError
-from agents_service.documents.matching import evidence_supported, value_supported
+from agents_service.documents.matching import canonical, evidence_supported, value_supported
 
 COLLECTIONS = (
     'education',
@@ -85,6 +86,23 @@ def value_in_source(value, source):
     return value_supported(str(value), source)
 
 
+def _words(text):
+    return re.findall(r'[^\W_]+', canonical(text))
+
+
+def _source_copy(key, value, source):
+    """The CV's own wording of a summary the model copied with its own punctuation
+    ("NumPy. Actively" for "NumPy Actively"): the same words in the same order, taken
+    from the CV. None when the words are not there in that order."""
+    if key != 'summary' or not isinstance(value, str):
+        return None
+    words = _words(value)
+    if len(words) < 8:
+        return None
+    found = re.search(r'(?<![^\W_])' + r'[\W_]+'.join(map(re.escape, words)) + r'(?![^\W_])', source, re.I)
+    return found.group() if found else None
+
+
 def supported_resume(data, source):
     """Retain source-supported fields only, without truncating record collections."""
     warnings = list(data.get('warnings') or [])
@@ -119,8 +137,15 @@ def supported_resume(data, source):
         elif isinstance(value, list):
             data[key] = [v for v in value if value_supported(str(v), source)]
         elif value is not None and not value_in_source(value, source):
-            data[key] = None
-            warnings.append(f'An unsupported {key.replace("_", " ")} was excluded.')
+            copy = _source_copy(key, value, source)
+            data[key] = copy
+            if copy is None:
+                warnings.append(f'An unsupported {key.replace("_", " ")} was excluded.')
+    # Education belongs in education: a degree under other_information is the model
+    # filing it in the wrong place, and the education reader has it already.
+    data['other_information'] = [
+        item for item in data.get('other_information') or [] if not DEGREE.search(item.get('title') or '')
+    ]
     # A GPA scale must be written as a scale ("8.9/10", "out of 10", "10-point scale").
     # A model asked for a scale the CV does not give tends to repeat the GPA instead.
     if data.get('gpa_scale') is not None and not stated_scale(data['gpa_scale'], source):

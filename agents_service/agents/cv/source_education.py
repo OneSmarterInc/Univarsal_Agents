@@ -51,7 +51,25 @@ def date_candidates(source):
         m
         for m in DATE.finditer(source)
         if not any(m.start() < end and m.end() > start for start, end in unsupported)
+        and (
+            m.group()[0].isdigit()
+            or m.group()[0].isalpha()
+            and not OPEN_END.fullmatch(m.group())
+            or _ends_range(source, m)
+        )
     ]
+
+
+OPEN_END = re.compile(r'present|current|now', re.I)
+
+
+def _ends_range(source, match):
+    """'Present', 'Current' or 'Now' is a date unless a word follows it on its line
+    ("Current CGPA: 8.9", "Present address"); at the end of a range it always is."""
+    before = source[max(0, match.start() - 12) : match.start()]
+    if re.search(r'(?:[-–—]|\bto|\btill|\buntil)\s*$', before, re.I):
+        return True
+    return not re.match(r'[ \t]+[^\W\d_]', source[match.end() :])
 
 
 def selection_schema(source):
@@ -181,7 +199,8 @@ def materialize(source, data):
 
 
 _DEGREE_WORDS = re.compile(
-    r'\b(?:Bachelor|Master|Doctor(?:ate)?|Associate Degree|Diploma|Higher Secondary|Secondary School)',
+    r'\b(?:Bachelor|Master|Doctor(?:ate)?|Associate Degree|Diploma|Higher Secondary|Secondary School|'
+    r'Secondary Education|Senior Secondary)',
     re.I,
 )
 # Abbreviations are case-sensitive so ordinary words such as "be" or "ma" never match.
@@ -199,7 +218,9 @@ class _Degree:
 
 DEGREE = _Degree()
 INSTITUTION = re.compile(
-    r'\b(?:University|College|Institute|School|Academy|Polytechnic|Universit[éy])\b', re.I
+    r'\b(?:University|College|Institute|School|Academy|Polytechnic|Universit[éy]|(?:State|Education) Board|'
+    r'Board of (?:Secondary|Higher Secondary|School) Education)\b',
+    re.I,
 )
 EDUCATION_HEADING = re.compile(
     r'^\s*(?:academic\s+)?(?:education|qualifications?)(?:\s+(?:and|&)\s+[\w ]+)?\s*:?\s*', re.I
@@ -317,12 +338,22 @@ def _block_record(source, lines, offsets, block):
     if len(dates) > 2:
         return None
     return Fact(
-        title=title,
+        title=_without_dates(title),
         organization=organization,
         start_date=dates[0].group() if len(dates) == 2 else None,
         end_date=dates[-1].group() if dates else None,
         evidence=source[lo:hi].strip(),
     ).model_dump()
+
+
+def _without_dates(title):
+    """'Higher Secondary (12th Grade) 2022 - 2024' -> 'Higher Secondary (12th Grade)'.
+    The dates are kept as the record's own dates."""
+    dates = date_candidates(title)
+    if not dates:
+        return title
+    cut = title[: dates[0].start()].rstrip(' -–—:|,(')
+    return cut if DEGREE.search(cut) else title
 
 
 def layout_education(source):

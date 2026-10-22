@@ -68,3 +68,40 @@ def sections(source):
             lines.append(line)
     if lines and fields:
         yield fields, '\n'.join(lines)
+
+
+# On the mobile "top skills" page each skill is a line of its own after a blank line;
+# under it LinkedIn shows where the skill was used ("Student | Computer Science",
+# "Example College"), often with an icon OCR reads as a stray letter ("r Example ...").
+ICON_PREFIX = re.compile(r'^(?:[^\w\s(]|[a-z])\s+\S')
+PLACE_WORDS = re.compile(
+    r'\b(?:college|university|school|polytechnic|institute|academy|inc|ltd|llc|corp|company|'
+    r'intern|student|engineer|developer|manager|analyst|consultant)\b',
+    re.I,
+)
+
+
+def top_skills(block):
+    """[{'name', 'evidence'}] read from a mobile "top skills" page, each from its own line.
+    [] for any other block."""
+    lines = block.splitlines()
+    if not lines or heading_of(lines[0]) != 'top skills':
+        return []
+    found = []
+    for index, line in enumerate(lines[1:], start=1):
+        text = line.strip()
+        previous = lines[index - 1].strip()
+        if (
+            not text
+            or previous
+            or '|' in text
+            or ICON_PREFIX.match(text)
+            or PLACE_WORDS.search(text)
+            or len(text) > 60
+            or not re.search(r'[^\W\d_]{2,}', text)
+        ):
+            continue
+        name = text.rstrip(':').strip()
+        if name:
+            found.append({'name': name, 'evidence': line})
+    return found

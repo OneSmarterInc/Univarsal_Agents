@@ -295,7 +295,7 @@ def _education_supported(item: dict, source: str, certifications: list[dict] | N
         and not EMPLOYMENT_LANGUAGE.search(evidence)
         and not CERTIFICATE_LANGUAGE.search(evidence)
         and not _works_there(institution, source)
-        and _on_profile_card(evidence, source)
+        and _on_profile_card(item.get('institution') or evidence, source)
     )
     if profile_card_school:
         return True
@@ -510,6 +510,16 @@ def _sanitize_item(item, source):
     """Drop unsupported fields individually; retain supported parts of the entry."""
     item = dict(item)
     evidence = item.get('evidence') or ''
+    name = item.get('name')
+    if name and evidence and not value_supported(name, evidence):
+        # The model named a skill that is a whole line of the screenshot but quoted
+        # another line: the line itself is the quote.
+        line = next(
+            (ln for ln in source.splitlines() if canonical(re.sub(r'^[^\w(]+', '', ln)) == canonical(name)),
+            None,
+        )
+        if line:
+            evidence = line
     if not evidence:
         anchor = next(
             (
@@ -650,6 +660,12 @@ def _supported_fields(data, source):
     ]
     for item in data.get('education', []):
         if _education_supported(item, source, out['certifications']):
+            study = item.get('field_of_study')
+            if study and not (item.get('degree') or item.get('start_date') or item.get('end_date')):
+                # The profile card shows the school only: "Engineering" taken from
+                # "College of Engineering" is not a field of study.
+                if value_supported(study, item.get('institution') or ''):
+                    item = {**item, 'field_of_study': None}
             out['education'].append(item)
     return out
 

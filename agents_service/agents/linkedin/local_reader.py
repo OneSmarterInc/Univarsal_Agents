@@ -8,7 +8,7 @@ from pydantic import ConfigDict, ValidationError, create_model
 
 from agents_service.agents.linkedin import source_jobs
 from agents_service.agents.linkedin.schemas import ImageObservation
-from agents_service.agents.linkedin.sections import SCALARS, chunks, sections
+from agents_service.agents.linkedin.sections import SCALARS, chunks, sections, top_skills
 from agents_service.agents.linkedin.validation import validate_data
 from agents_service.ai.providers import AIError, provider
 from agents_service.ai.schema import explicit_schema
@@ -43,6 +43,16 @@ def tasks(source):
 
 
 MAX_REQUESTS = 32
+
+
+def _scalar_evidence(field, value, chunk):
+    """A location is quoted from its own line: the whole screenshot also holds the
+    headline ("Intern at ..."), which the location check rightly refuses."""
+    if field == 'location':
+        line = next((ln for ln in chunk.splitlines() if value_supported(value, ln)), None)
+        if line:
+            return line
+    return chunk
 
 
 def _request(fields, chunk, config, deadline):
@@ -135,7 +145,7 @@ def _request(fields, chunk, config, deadline):
         data = schema.model_validate(reply.data).model_dump()
         if scalar:
             data = {
-                key: {'value': value, 'evidence': chunk}
+                key: {'value': value, 'evidence': _scalar_evidence(key, value, chunk)}
                 for key, value in data.items()
                 if value and value_supported(value, chunk)
             }
@@ -170,5 +180,13 @@ def extract_local(source, config):
                     if key not in seen:
                         merged[field].append(entry)
                         seen.add(key)
+    # The mobile "top skills" page lists each skill on its own line: read those lines
+    # as written, as well as what the model found. Each is still checked below.
+    known = {canonical(skill['name']) for skill in merged['skills']}
+    for _fields, block in sections(source):
+        for skill in top_skills(block):
+            if canonical(skill['name']) not in known:
+                merged['skills'].append(skill)
+                known.add(canonical(skill['name']))
     # Validate against the complete original OCR as well as the request chunk.
     return validate_data(merged, source)
