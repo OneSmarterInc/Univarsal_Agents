@@ -112,3 +112,66 @@ def test_request_larger_than_context_is_refused(tmp_path):
     with provider(config(tmp_path, model_context_tokens=4096)) as client, pytest.raises(AIError) as error:
         client.generate(system='s', messages=[{'role': 'user', 'content': 'x' * 10000}], max_tokens=1000)
     assert error.value.reason == 'context'
+
+
+def test_vllm_gets_no_reasoning_effort_unless_set(tmp_path, monkeypatch):
+    reply = {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({'names': []})}}]}
+    seen = []
+    fake_server(monkeypatch, reply, seen)
+
+    def body_for(**settings):
+        seen.clear()
+        with provider(config(tmp_path, **settings)) as client:
+            client.generate(
+                system='s',
+                messages=[{'role': 'user', 'content': 'u'}],
+                max_tokens=100,
+                schema={'type': 'object'},
+            )
+        return seen[0]
+
+    vllm = {'model_provider': 'openai', 'model_base_url': 'https://gpu.internal/v1'}
+    assert 'reasoning_effort' not in body_for(**vllm)
+    assert body_for(**vllm, model_reasoning_effort='low')['reasoning_effort'] == 'low'
+    assert body_for()['reasoning_effort'] == 'none'  # Qwen on Ollama keeps thinking off
+
+
+def test_an_anthropic_override_gets_anthropic_limits(tmp_path):
+    settings = make_settings(
+        tmp_path,
+        model_context_tokens=16384,
+        model_output_tokens=2048,
+        model_overrides={'linkedin': {'provider': 'anthropic', 'name': 'claude-x', 'api_key': 'k'}},
+    )
+    linkedin = model_config(settings, 'linkedin')
+    assert (linkedin['context_tokens'], linkedin['output_tokens']) == (131072, 8000)
+    assert model_config(settings, 'cv')['output_tokens'] == 2048  # the global model is unchanged
+
+
+def test_an_override_never_reuses_the_global_key_on_another_server(tmp_path):
+    settings = make_settings(
+        tmp_path,
+        model_provider='anthropic',
+        model_name='claude-x',
+        model_api_key='anthropic-key',
+        model_overrides={'cv': {'provider': 'openai', 'base_url': 'https://gpu.internal/v1', 'name': 'qwen'}},
+    )
+    assert model_config(settings, 'cv')['api_key'] == ''
+    assert model_config(settings, 'linkedin')['api_key'] == 'anthropic-key'
+    moved = make_settings(
+        tmp_path,
+        model_api_key='ollama-proxy-key',
+        model_overrides={'cv': {'base_url': 'https://other.internal/v1'}},
+    )
+    assert model_config(moved, 'cv')['api_key'] == ''
+
+
+def test_an_anthropic_override_without_its_own_key_is_a_configuration_error(tmp_path):
+    settings = make_settings(
+        tmp_path,
+        model_api_key='global-key',
+        model_overrides={'cv': {'provider': 'anthropic', 'name': 'claude-x'}},
+    )
+    with pytest.raises(AIError) as error:
+        model_config(settings, 'cv')
+    assert error.value.reason == 'configuration'

@@ -40,7 +40,7 @@ agents model-check
 ```
 
 `AGENTS_MODEL_CONTEXT_TOKENS` must equal `num_ctx`. Thinking stays off through
-`AGENTS_MODEL_REASONING_EFFORT=none`.
+`AGENTS_MODEL_REASONING_EFFORT=none` (the default for Ollama).
 
 ## Ollama on another machine
 
@@ -63,15 +63,18 @@ AGENTS_MODEL_NAME=Qwen/Qwen3-1.7B
 AGENTS_MODEL_API_KEY=<vLLM --api-key value, if set>
 ```
 
+No `reasoning_effort` is sent to these servers unless `AGENTS_MODEL_REASONING_EFFORT` is set.
+
 ## Later: an API key model
 
 ```
 AGENTS_MODEL_PROVIDER=anthropic
 AGENTS_MODEL_NAME=<model id>
 AGENTS_MODEL_API_KEY=<key>
-AGENTS_MODEL_OUTPUT_TOKENS=8000
-AGENTS_MODEL_CONTEXT_TOKENS=131072
 ```
+
+The limits default to 8000 output and 131072 context tokens for this provider; set
+`AGENTS_MODEL_OUTPUT_TOKENS` and `AGENTS_MODEL_CONTEXT_TOKENS` to change them.
 
 Install the extra once: `pip install -e ".[anthropic]"`. Large API models read a
 whole document in one request; small local models read it section by section.
@@ -85,6 +88,17 @@ AGENTS_MODEL_OVERRIDES={"linkedin": {"provider": "anthropic", "name": "<model id
 Any `model_*` setting can be overridden per agent (`provider`, `base_url`, `name`,
 `api_key`, `structured_mode`, `reasoning_effort`, `context_tokens`, `output_tokens`,
 `allow_http`, `request_seconds`, `text_first`).
+
+An override that changes the provider or the server:
+
+- needs its own `api_key` (the global key is never sent to another server);
+- gets that provider's default limits and `reasoning_effort`, unless it sets them.
+
+| Provider | context_tokens | output_tokens | reasoning_effort |
+|---|---|---|---|
+| ollama | 16384 | 2048 | none |
+| openai | 16384 | 2048 | not sent |
+| anthropic | 131072 | 8000 | not sent |
 
 ## After any model change
 

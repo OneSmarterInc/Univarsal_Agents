@@ -13,6 +13,17 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Provider = Literal['ollama', 'openai', 'anthropic']
 
+# Used for any model limit not set. Qwen on Ollama has thinking switched off;
+# other servers get no reasoning_effort unless it is set.
+PROVIDER_DEFAULTS = {
+    'ollama': {'context_tokens': 16384, 'output_tokens': 2048, 'reasoning_effort': 'none'},
+    'openai': {'context_tokens': 16384, 'output_tokens': 2048, 'reasoning_effort': ''},
+    'anthropic': {'context_tokens': 131072, 'output_tokens': 8000, 'reasoning_effort': ''},
+}
+# Settings that belong to one provider: an override that changes the provider
+# (or the server) does not take the global value, only its own or the default.
+PROVIDER_BOUND = ('api_key', 'context_tokens', 'output_tokens', 'reasoning_effort')
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -44,9 +55,10 @@ class Settings(BaseSettings):
     model_name: str = 'kormic-local'
     model_api_key: str = ''
     model_structured_mode: Literal['json_schema', 'tools'] = 'json_schema'
-    model_reasoning_effort: Literal['', 'none', 'low', 'medium', 'high'] = 'none'
-    model_context_tokens: int = 16384
-    model_output_tokens: int = 2048
+    # Empty = the provider's default (see PROVIDER_DEFAULTS).
+    model_reasoning_effort: Literal['', 'none', 'low', 'medium', 'high'] = ''
+    model_context_tokens: int | None = None
+    model_output_tokens: int | None = None
     model_allow_http: bool = False
     # Longest wait for one model answer.
     model_request_seconds: int = 120
@@ -54,7 +66,9 @@ class Settings(BaseSettings):
     # across the questions about one piece of text (faster on a CPU).
     model_text_first: bool = True
     # Per agent, any of the model_* values above, for example
-    # AGENTS_MODEL_OVERRIDES='{"linkedin": {"provider": "anthropic", "name": "claude-..."}}'
+    # AGENTS_MODEL_OVERRIDES='{"linkedin": {"provider": "anthropic", "name": "claude-...", "api_key": "..."}}'
+    # An override that changes the provider or server needs its own api_key and
+    # gets that provider's default limits unless it sets them.
     model_overrides: dict[str, dict] = {}
 
     # Reading.
@@ -122,7 +136,18 @@ class Settings(BaseSettings):
         unknown = set(override) - set(values)
         if unknown:
             raise ValueError(f'Unknown model override for {agent}: {", ".join(sorted(unknown))}')
+        moved = override.get('provider', values['provider']) != values['provider'] or (
+            'base_url' in override and str(override['base_url']).rstrip('/') != values['base_url']
+        )
+        if moved:
+            # A key or limit set for the global model never goes to another provider or server.
+            for name in PROVIDER_BOUND:
+                values[name] = '' if name == 'api_key' else None
         values.update(override)
+        defaults = PROVIDER_DEFAULTS.get(values['provider'], PROVIDER_DEFAULTS['openai'])
+        for name, default in defaults.items():
+            if values.get(name) in (None, ''):
+                values[name] = default
         values['base_url'] = str(values['base_url']).rstrip('/')
         return values
 
