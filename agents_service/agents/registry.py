@@ -10,6 +10,7 @@ from importlib import import_module
 AVAILABLE = {
     'cv': 'agents_service.agents.cv.agent',
     'linkedin': 'agents_service.agents.linkedin.agent',
+    'nppes': 'agents_service.agents.nppes.agent',
 }
 
 KEY_PREFIX = 'ua_'

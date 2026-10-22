@@ -234,19 +234,20 @@ def job_state(records, files, empty_is_answer=False):
 # --- lookup (data) agents -------------------------------------------------------
 
 
-def data_record(section, details, source, retrieved_at, evidence=''):
+def data_record(section, details, source, retrieved_at, evidence='', value=None):
     """One fact from an outside source (a register, a list) for a data agent.
 
     `source` is where it came from (a public URL, never one carrying a key);
     `retrieved_at` is when the data was fetched or, for a published file, the
-    date it was published.
+    date it was published. `value` is the short text shown for the record
+    (default: all details joined).
     """
     details = {k: v for k, v in details.items() if v is not None}
     identity = json.dumps([section, details], sort_keys=True, ensure_ascii=False)
     return {
         'id': hashlib.sha256(identity.encode()).hexdigest()[:24],
         'section': section,
-        'value': _display(details),
+        'value': str(value) if value is not None else _display(details),
         'details': details,
         'sources': [{'source': source, 'retrieved_at': retrieved_at, 'evidence': evidence}],
     }
