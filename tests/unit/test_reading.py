@@ -133,3 +133,13 @@ def test_tight_lines_do_not_take_letters_from_their_neighbours(tmp_path):
     text = read_document(_pdf(tmp_path, draw))
     for line in ('Software Engineer (2019 - 2022)', 'Did quality work', 'Built a gadget tool'):
         assert line in text.splitlines(), text
+
+
+def test_an_overlapping_piece_starts_at_a_line_start():
+    from agents_service.documents.text import chunks
+
+    source = '\n'.join(f'Line {n} of a made-up CV with Example College of Engineering' for n in range(80))
+    pieces = list(chunks(source, limit=1800, overlap=250))
+    assert len(pieces) > 1
+    assert all(piece.startswith('Line ') for piece in pieces)
+    assert all(line in source.splitlines() for piece in pieces for line in piece.splitlines())

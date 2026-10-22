@@ -1,6 +1,7 @@
 """Bounded, focused requests for self-hosted LinkedIn extraction only."""
 
 import json
+import re
 import time
 
 from pydantic import ConfigDict, ValidationError, create_model
@@ -13,9 +14,14 @@ from agents_service.ai.providers import AIError, provider
 from agents_service.ai.schema import explicit_schema
 from agents_service.documents.matching import canonical, value_supported
 
+# A block with fewer letters than this has nothing to read (an icon row, a status bar).
+MIN_LETTERS = 8
+
 
 def tasks(source):
     for fields, block in sections(source):
+        if len(re.findall(r'[^\W\d_]', block)) < MIN_LETTERS:
+            continue
         if fields == ('about',) and len(block) > 1800:
             # LinkedIn allows 2,600 characters here. The first part (to a line
             # end) is enough for the profile; the rest of the screenshot is unaffected.

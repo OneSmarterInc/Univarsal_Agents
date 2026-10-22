@@ -23,4 +23,8 @@ def chunks(source, limit=2200, overlap=350):
         yield source[start:end]
         if end == len(source):
             break
-        start = max(start + 1, end - overlap)
+        # The overlap starts at the start of a line: a piece that begins inside a word
+        # ("...ant Gajanan" from "Shri Sant Gajanan") is read as a new entry.
+        back = end - overlap
+        line_start = source.find('\n', back, end) + 1
+        start = max(start + 1, line_start if 0 < line_start < end else back)

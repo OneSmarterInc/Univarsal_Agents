@@ -82,3 +82,16 @@ def test_a_company_on_the_profile_card_is_not_a_school():
         CARD,
     )
     assert out['education'] == []
+
+
+def test_the_phone_status_bar_is_not_read_as_a_headline():
+    from agents_service.agents.linkedin.local_reader import tasks
+    from agents_service.agents.linkedin.validation import clean_text
+
+    shot = "754 OOS ie\n\n€- ___ Riya's top skills\n\nProblem Solving\n\nWeb Development\n"
+    text = clean_text(shot, screenshot=True)
+    assert not text.startswith('754')
+    assert [fields for fields, _ in tasks(text)] == [('skills',)]
+    # A first line that is real content stays.
+    assert clean_text('1200 connections\nRiya Example', screenshot=True).startswith('1200 connections')
+    assert clean_text('Riya Example\n754 OOS ie', screenshot=True).endswith('754 OOS ie')

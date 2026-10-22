@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.4 — reading fixes from the CV and LinkedIn laptop retest (October 2026)
+
+- **CV (reader cv/3):** a CV split into pieces is split at line starts. A piece used to
+  start inside a word ("...ant Gajanan" from "Shri Sant Gajanan"), and the model read it as
+  a new school, job and project.
+- **LinkedIn (reader linkedin/3):** a phone's status bar read as the first line ("754 OOS
+  ie" for 7:54) is dropped, and a block with almost no letters is never sent to the model.
+  Before, it came back as a headline "OOS ie" and a location "OOS".
+- **`AGENTS_DEBUG_DIR`** (test machines only): saves every model question and answer, to
+  find why a reader drops a fact. Off by default; the worker warns when it is on.
+
 ## 1.2.3 — fixes from the first live SAM run (October 2026)
 
 - **Notices of lookup agents have their own codes** (`not_a_clearance`, `listed_record`,

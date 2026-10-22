@@ -67,6 +67,16 @@ def _window_chrome(line: str) -> bool:
     )
 
 
+STATUS_BAR = re.compile(r'^(?:[01]?\d|2[0-3])[:.]?[0-5]\d\b(?P<rest>.*)$')
+
+
+def _status_bar(line: str) -> bool:
+    """A phone's status bar read by OCR as the first line: the time, then icons
+    ("754 OOS ie" for 7:54). No word of four letters or more follows the time."""
+    found = STATUS_BAR.match(line)
+    return bool(found) and len(line) <= 30 and not re.search(r'[^\W\d_]{4,}', found.group('rest'))
+
+
 def clean_text(text: str, screenshot: bool = False) -> str:
     """Tidy OCR or document text. Screenshot text also loses browser and
     LinkedIn menu lines; document text keeps every line (a CV may well say
@@ -74,12 +84,16 @@ def clean_text(text: str, screenshot: bool = False) -> str:
     text = text.replace('\x00', ' ')
     text = re.sub(r'[ \t]+', ' ', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
-    lines = []
+    lines, first = [], True
     for line in text.splitlines():
         clean = line.strip()
         if not clean:
             lines.append('')
             continue
+        if screenshot and first and _status_bar(clean):
+            first = False
+            continue
+        first = False
         if screenshot and (UI_NOISE_LINE.fullmatch(clean) or _window_chrome(clean)):
             continue
         lines.append(clean)

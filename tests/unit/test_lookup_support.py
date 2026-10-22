@@ -347,3 +347,25 @@ def test_name_words_and_matching():
     assert same_person_or_firm('SMITH JANE ELIZABETH', 'Dr. Jane Marie Smith, LCSW')
     assert not same_person_or_firm('JOHN SMITH', 'Jane Smith')
     assert not same_person_or_firm('BETA INC', 'Acme Inc')
+
+
+def test_model_questions_and_answers_are_saved_only_with_a_debug_folder(tmp_path):
+    from agents_service.ai.providers import OpenAICompatibleProvider, job_scope
+
+    config = {'base_url': 'https://model.example/v1', 'api_key': '', 'model': 'm', 'provider': 'openai',
+              'structured_mode': 'json_schema', 'context_tokens': 8192, 'output_tokens': 512}  # fmt: skip
+    reply = {'choices': [{'finish_reason': 'stop', 'message': {'content': 'OK'}}]}
+
+    def ask():
+        client = OpenAICompatibleProvider(config, timeout=5)
+        client.client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=reply)))
+        return client.generate(system='s', messages=[{'role': 'user', 'content': 'made-up text'}],
+                               max_tokens=16, name='probe')  # fmt: skip
+
+    with job_scope():
+        assert ask().text == 'OK'
+    assert not list(tmp_path.iterdir())
+    with job_scope(debug_dir=tmp_path / 'cv-job_1'):
+        ask()
+    saved = json.loads((tmp_path / 'cv-job_1' / '001-probe.json').read_text(encoding='utf-8'))
+    assert saved['messages'][0]['content'] == 'made-up text' and '"OK"' in saved['answer']

@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     isolate_parsing: bool = True
     file_seconds: int = Field(default=900, ge=5)
     cv_chunk_chars: int = 3000
+    # A folder: every model question and answer of every job is saved there, one
+    # JSON file each. For finding why a reader drops facts on a test machine only:
+    # the files hold the documents' text. Empty (the default) saves nothing.
+    debug_dir: str = ''
     linkedin_max_files: int = Field(default=5, ge=1, le=10)
 
     # Limits per key and per project.

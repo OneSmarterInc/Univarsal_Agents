@@ -18,6 +18,7 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
@@ -93,17 +94,39 @@ class RequestStats:
 
 _check = contextvars.ContextVar('model_check', default=None)
 _stats = contextvars.ContextVar('model_stats', default=None)
+_debug = contextvars.ContextVar('model_debug', default=None)
 
 
 @contextmanager
-def job_scope(check=None, stats=None):
-    """Run a job's model requests with a cancel check and a timing record."""
+def job_scope(check=None, stats=None, debug_dir=None):
+    """Run a job's model requests with a cancel check and a timing record.
+
+    With `debug_dir`, each question and answer is saved there (see AGENTS_DEBUG_DIR).
+    """
     check_token, stats_token = _check.set(check), _stats.set(stats)
+    debug_token = _debug.set({'folder': Path(debug_dir), 'count': 0} if debug_dir else None)
     try:
         yield
     finally:
         _check.reset(check_token)
         _stats.reset(stats_token)
+        _debug.reset(debug_token)
+
+
+def _save_exchange(name, system, messages, schema, answer, error=None):
+    """Write one question and its answer to the job's debug folder. Never fails a job."""
+    debug = _debug.get()
+    if debug is None:
+        return
+    try:
+        debug['count'] += 1
+        debug['folder'].mkdir(parents=True, exist_ok=True)
+        record = {'question': name, 'system': system, 'messages': messages, 'schema': schema,
+                  'answer': answer, 'error': error}  # fmt: skip
+        path = debug['folder'] / f'{debug["count"]:03d}-{name}.json'
+        path.write_text(json.dumps(record, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
+    except Exception:  # noqa: BLE001 - debugging help only
+        log.warning('Could not save a model exchange to the debug folder')
 
 
 def _before_request():
@@ -264,9 +287,12 @@ class AnthropicProvider:
         try:
             reply = self.client.messages.create(**kwargs)
         except Exception as exc:  # noqa: BLE001 - SDK errors become fixed reasons
+            _save_exchange(name, system, messages, schema, None, type(exc).__name__)
             raise _anthropic_error(exc) from exc
         finally:
             _after_request(name, started)
+        if _debug.get() is not None:
+            _save_exchange(name, system, messages, schema, reply.model_dump(mode='json'))
         if reply.stop_reason == 'max_tokens':
             return Completion(finish='length')
         if schema is not None:
@@ -359,6 +385,8 @@ class OpenAICompatibleProvider:
                         raise AIError('length')
                     chunks.append(chunk)
                 raw = b''.join(chunks)
+            _save_exchange(name, system, messages, schema, raw.decode('utf-8', 'replace'),
+                           None if response.status_code == 200 else f'HTTP {response.status_code}')  # fmt: skip
             if response.status_code != 200:
                 raise AIError(
                     'capability' if response.status_code in (400, 422) and schema else 'provider',

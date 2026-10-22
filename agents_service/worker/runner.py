@@ -10,6 +10,7 @@ import socket
 import threading
 import time
 from contextlib import ExitStack
+from pathlib import Path
 
 from agents_service.agents.base import InputFile, JobCancelled, JobContext, JobFailed, NotConfigured
 from agents_service.agents.records import check_records, job_state, notice_for
@@ -135,7 +136,12 @@ def _run_agent(services, job, renewer):
                 cache=Cache(services.db, settings.key_pepper, agent.name),
                 references=References(services.db, services.storage, agent.name),
             )
-            with job_scope(check=renewer.still_held, stats=stats):
+            debug_dir = (
+                str(Path(settings.debug_dir) / f'{job.agent}-{job.id}')
+                if getattr(settings, 'debug_dir', '')
+                else None
+            )
+            with job_scope(check=renewer.still_held, stats=stats, debug_dir=debug_dir):
                 outcome = agent.run(context)
                 context.check_cancelled()
     except JobCancelled:
@@ -203,6 +209,12 @@ def run(services, agents=None, once=False, stop=None):
     stop = stop or threading.Event()
     last_sweep = 0.0
     log.info('worker started: id=%s agents=%s', worker, ','.join(names))
+    if services.settings.debug_dir:
+        log.warning(
+            'AGENTS_DEBUG_DIR is set: every model question and answer, with document text, is saved in %s. '
+            'Use this on a test machine only.',
+            services.settings.debug_dir,
+        )
     while not stop.is_set():
         if time.monotonic() - last_sweep > SWEEP_SECONDS:
             try:

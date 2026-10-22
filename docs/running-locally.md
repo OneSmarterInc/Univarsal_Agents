@@ -117,7 +117,20 @@ Point the project's backend at `http://127.0.0.1:8000` with its keys and use the
 
 Run the Docker compose file from phase 2 on your laptop with Docker Desktop.
 
-## 5. Speed on a laptop
+## 5. Why a CV or screenshot lost a fact
+
+Set `AGENTS_DEBUG_DIR=D:\agents-debug` in `.env` and restart the worker. Every model
+question and answer of every job is then saved there, one JSON file each, in a folder per
+job (`cv-job_...`). The files hold the document's text: use this on a test machine only,
+delete the folder after use and never set it on AWS. The worker warns when it is on.
+
+To see the text the model was given, without calling the model:
+
+```powershell
+python -c "from agents_service.core.config import get_settings as g; from agents_service.documents.isolation import read_text as r; print(r(r'D:\test\my_cv.pdf', g()))"
+```
+
+## 6. Speed on a laptop
 
 - Plug in the charger and set Windows power mode to **Best performance**. On battery
   saver the CPU is much slower.
