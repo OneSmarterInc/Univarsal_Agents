@@ -163,8 +163,9 @@ def _education(chunk, reply):
         education = source_education.layout_education(chunk)
         if education is None:
             raise
-    if not education:
-        education = source_education.layout_education(chunk) or []
+    layout = source_education.layout_education(chunk)
+    if layout and len(layout) > len(education):
+        education = layout  # the document shows more entries plainly than the model found
     return {'education': education}
 
 
@@ -179,8 +180,12 @@ def _records(fields, chunk, schema, reply, supported_resume):
         entries = source_records.layout_entries(chunk, kind)
         if entries is None:
             raise
-    if not supported_resume({field: entries, 'warnings': []}, chunk)[field]:
-        entries = source_records.layout_entries(chunk, kind) or entries
+    kept = supported_resume({field: entries, 'warnings': []}, chunk)[field]
+    layout = source_records.layout_entries(chunk, kind)
+    if layout and len(layout) > len(kept):
+        # The document shows more entries plainly than the model's checked answer
+        # holds: read them from the document (every value is a copy of its text).
+        entries = layout
     return {field: entries}
 
 

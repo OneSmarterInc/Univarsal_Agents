@@ -199,7 +199,7 @@ def materialize(source, data):
 
 
 _DEGREE_WORDS = re.compile(
-    r'\b(?:Bachelor|Master|Doctor(?:ate)?|Associate Degree|Diploma|Higher Secondary|Secondary School|'
+    r'\b(?:Bachelor|Master|Doctor of|Doctorate|Associate Degree|Diploma|Higher Secondary|Secondary School|'
     r'Secondary Education|Senior Secondary)',
     re.I,
 )
@@ -210,10 +210,30 @@ _DEGREE_ABBREVIATIONS = re.compile(
 )
 
 
+SPACED_LETTERS = re.compile(r'^\W*(?:[A-Za-z&]{1,2} ){3,}[A-Za-z&]{1,2}\W*$')
+
+
 class _Degree:
     @staticmethod
     def search(text):
-        return _DEGREE_WORDS.search(text) or _DEGREE_ABBREVIATIONS.search(text)
+        found = _DEGREE_WORDS.search(text)
+        if found:
+            return found
+        if SPACED_LETTERS.match(text):
+            return None  # "P R O F E S S I O N A L" holds "M A" and "S"
+        for found in _DEGREE_ABBREVIATIONS.finditer(text):
+            words = re.findall(r'[^\W\d_]+', text)
+            # "ABOUT ME" is a heading: a bare two-letter abbreviation after a word on a
+            # two-word line is not a degree ("BE" alone, or "BE (IT)", still is).
+            if (
+                len(found.group()) == 2
+                and len(words) == 2
+                and words[-1] == found.group()
+                and not re.search(r'\d', text)
+            ):
+                continue
+            return found
+        return None
 
 
 DEGREE = _Degree()
@@ -232,6 +252,28 @@ OTHER_HEADING = re.compile(
     r'references?|referees?|declaration|hobbies|interests)\s*:?\s*$',
     re.I,
 )
+
+
+SECTION_WORDS = re.compile(
+    r'summary|objective|profile|about\s*me|experience|internships?|projects?|skills|education|'
+    r'certifi\w*|achievements?|awards?|activit\w*|extra\s*curricular|leadership|interests?|hobbies|'
+    r'lang\w*ges|courses?|declaration|references?|strengths?|contact|publications?|volunteer\w*|'
+    r'additional\s*information|personal\s*(?:details|information)|training',
+    re.I,
+)
+
+
+def is_section_heading(line):
+    """A section title: a few words, starting with a section word ("Achievements",
+    "Leadership & Activities") or in capitals and holding one ("EXTRACURRICULARACTIVITIES",
+    "AREAS OF INTEREST"). Never a line naming a degree or a school."""
+    text = re.sub(r'^[^A-Za-z]+', '', line).strip().rstrip(':').strip()
+    if not text or len(text) > 50 or re.search(r'[\d|(),.@]', text) or len(text.split()) > 6:
+        return False
+    if DEGREE.search(text) or INSTITUTION.search(text) or not SECTION_WORDS.search(text):
+        return False
+    letters = re.sub(r'[^A-Za-z]', '', text)
+    return letters.isupper() or bool(SECTION_WORDS.match(text))
 
 
 def shared_line_records(source, start, line):
@@ -294,7 +336,7 @@ def _education_region(lines):
             if line[match.end() :].strip():
                 region.append((index, match.end()))
             continue
-        if OTHER_HEADING.match(line):
+        if OTHER_HEADING.match(line) or is_section_heading(line):
             state = 'other'
             continue
         if state == 'edu' or (state is None and DEGREE.search(line)):

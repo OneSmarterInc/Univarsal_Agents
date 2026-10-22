@@ -12,13 +12,23 @@ from agents_service.agents.cv.source_education import (
     EDUCATION_HEADING,
     OTHER_HEADING,
     date_candidates,
+    is_section_heading,
 )
 
 WORK_HEADING = re.compile(
     r'^\s*(?:(?:work|professional|employment|relevant)\s+)?(?:experience|history|employment)\s*:?\s*$',
     re.I,
 )
-PROJECT_HEADING = re.compile(r'^\s*(?:(?:key|selected|academic|personal)\s+)?projects?\s*:?\s*$', re.I)
+PROJECT_HEADING = re.compile(
+    r'^\s*(?:(?:key|selected|academic|personal|featured|major|mini|technical|college|software)\s*)?projects?\s*:?\s*$',
+    re.I,
+)
+# A line that starts with a bullet is a detail of an entry, never the entry's title.
+BULLET = re.compile(r'^\s*[•●▪◦○■□➢➤►▶✓✔\-–*·]\s*')
+# "Technologies: React, Node" or "Tech Stack: ..." under a project title.
+DETAIL_LABEL = re.compile(
+    r'^\s*(?:tech(?:nolog(?:y|ies))?|tech stack|stack|tools?|role|links?|github)\s*[:|]', re.I
+)
 # One section for both: "WORK EXPERIENCE / PROJECTS", "Experience & Projects".
 COMBINED_HEADING = re.compile(
     r'^\s*(?:(?:work|professional|relevant)\s+)?(?:experience|employment)\s*(?:/|&|and)\s*projects?\s*:?\s*$|'
@@ -51,6 +61,7 @@ def _region(lines, heading):
             or EDUCATION_HEADING.match(line)
             or WORK_HEADING.match(line)
             or PROJECT_HEADING.match(line)
+            or is_section_heading(line)
         ):
             state = 'out'
             continue
@@ -109,16 +120,67 @@ def _title_employer_header(lines, i, allowed, parts):
     )
 
 
-def _headers(lines, ids, kind):
+def _next_is_bullet(lines, i, allowed):
+    return i + 1 in allowed and bool(BULLET.match(lines[i + 1]))
+
+
+def _undated_project_title(lines, i, allowed, inside):
+    """A project written as a title line, then its bullets, with no date anywhere:
+    "Student Portal" / "Technologies: HTML, MySQL" / "• Built ...". The title follows
+    the section heading, a blank line or a finished bullet; a bullet comes within 3 lines."""
+    line = lines[i].strip()
+    if (
+        i not in inside
+        or not line
+        or BULLET.match(line)
+        or DETAIL_LABEL.match(line)
+        or date_candidates(line)
+        or line[0].islower()
+        or line.endswith(('.', ',', ';', ':'))
+        or len(line) > 120
+    ):
+        return False
+    previous = lines[i - 1].strip() if i - 1 in allowed else ''
+    # After the heading, a blank line or a finished sentence (a bullet, or its wrapped end).
+    after_entry = not previous or previous.endswith(('.', '!', '?', ')'))
+    if not after_entry:
+        return False
+    for j in range(i + 1, i + 4):
+        if j not in allowed or not lines[j].strip():
+            return False
+        if BULLET.match(lines[j]):
+            return True
+    return False
+
+
+def _headers(lines, ids, kind, inside=frozenset()):
     """Entry headers as (first line, last line, text parts)."""
     allowed = set(ids)
     headers, consumed = [], -1
     for i in ids:
         line = lines[i]
-        if i <= consumed or not line.strip() or _starts_with_date(line):
+        if i <= consumed or not line.strip() or _starts_with_date(line) or BULLET.match(line):
             continue
         parts = _text_parts(line)
         if not parts:
+            continue
+        previous = lines[i - 1].strip() if i - 1 in allowed else ''
+        continuation = line.strip()[0].islower() or bool(
+            BULLET.match(previous) and not previous.endswith(('.', '!', '?', ')'))
+        )
+        if (
+            headers
+            and headers[-1][1] == i - 1
+            and not continuation
+            and not DETAIL_LABEL.match(line)
+            and _next_is_bullet(lines, i, allowed)
+        ):
+            # A title that wraps onto a second line ("... AI/ML" / "Internship, 2026").
+            first, _last, title_parts = headers[-1]
+            headers[-1] = (first, i, title_parts)
+            consumed = i
+            continue
+        if continuation:
             continue
         if date_candidates(line):
             headers.append((i, i, parts))
@@ -130,6 +192,8 @@ def _headers(lines, ids, kind):
             headers.append((i - 1, i, parts))
         elif kind == 'work' and _title_employer_header(lines, i, allowed, parts):
             headers.append((i, i + 2, parts + _text_parts(lines[i + 1])[:1]))
+        elif kind == 'projects' and _undated_project_title(lines, i, allowed, inside):
+            headers.append((i, i, parts))
         if headers and headers[-1][0] == i:
             consumed = headers[-1][1]
     return headers
@@ -191,13 +255,15 @@ def layout_entries(source, kind):
     region = _region(lines, heading)
     headed = any(inside for _, inside in region)
     ids = [i for i, _ in region]
-    headers = _headers(lines, ids, kind)
+    inside = frozenset(i for i, within in region if within)
+    combined = any(COMBINED_HEADING.match(line) for line in lines)
+    # Undated titles only under a plain Projects heading; a combined section needs dates.
+    headers = _headers(lines, ids, kind, frozenset() if combined else inside)
     if not headers:
         # Unheaded chunks without a clear entry hold no records of this kind.
         return None if headed and any(lines[i].strip() for i in ids) else []
     if _overlapping(headers):
         return None
-    combined = any(COMBINED_HEADING.match(line) for line in lines)
     records = []
     for number, header in enumerate(headers):
         if combined and (len(header[2]) >= 2) != (kind == 'work'):

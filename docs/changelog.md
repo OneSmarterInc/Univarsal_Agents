@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.6 — fixes from 7 more student CVs (October 2026)
+
+- **CV (reader cv/5):** projects written as a title and bullets, with no date, are read
+  from the document (they were all lost on 2 of 7 CVs); a bullet line is never a new
+  entry (one CV's 4 roles came back as 12); a title that wraps onto a second line keeps
+  its date; a section ends at its next heading ("Certifications & Achievements",
+  "EXTRACURRICULARACTIVITIES"); when the document shows more entries plainly than the
+  model's checked answer holds, they are read from the document.
+- **CV checks:** an education entry needs a degree or a school ("(IT) 8" is dropped);
+  `links` never holds an email or a phone number; `languages` never holds a programming
+  language; "ABOUT ME" and spaced headings are never degrees.
+- **PDF reading:** a text layer that puts each letter on its own line is replaced by the
+  other one; text stored as "â€“" is repaired; icon-font bullets become "•"; spaced
+  headings ("C O N T A C T") are read as words.
+- **`agents try`** always prints UTF-8 (it crashed on Windows when the output went to a file).
+
 ## 1.2.5 — facts the small model lost, recovered from the document (October 2026)
 
 The laptop's model (Qwen3 1.7B) often quotes the wrong line or invents a date, and the

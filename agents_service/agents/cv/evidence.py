@@ -4,7 +4,7 @@ import re
 
 from agents_service.agents.cv.owner import supported_owner
 from agents_service.agents.cv.schemas import ResumeFacts
-from agents_service.agents.cv.source_education import DEGREE
+from agents_service.agents.cv.source_education import DEGREE, INSTITUTION
 from agents_service.ai.providers import AIError
 from agents_service.documents.matching import canonical, evidence_supported, value_supported
 
@@ -86,6 +86,23 @@ def value_in_source(value, source):
     return value_supported(str(value), source)
 
 
+EMAIL = re.compile(r'^[\w.+-]+@[\w-]+(?:\.[\w-]+)+$')
+PROGRAMMING = re.compile(
+    r'^\s*(?:python|java|javascript|typescript|c|c\+\+|c#|c/c\+\+|go|golang|rust|ruby|php|kotlin|swift|dart|'
+    r'r|sql|mysql|html5?|css3?|scala|perl|matlab|bash|shell|solidity|julia)\b',
+    re.I,
+)
+
+
+def _is_link(value):
+    text = str(value or '').strip()
+    if EMAIL.match(text) or text.lower().startswith('mailto:'):
+        return False
+    if len(re.sub(r'\D', '', text)) >= 7 and not re.search(r'[a-z]{2,}', text, re.I):
+        return False  # a phone number
+    return True
+
+
 def _words(text):
     return re.findall(r'[^\W_]+', canonical(text))
 
@@ -141,6 +158,24 @@ def supported_resume(data, source):
             data[key] = copy
             if copy is None:
                 warnings.append(f'An unsupported {key.replace("_", " ")} was excluded.')
+    # An education entry names a qualification or a school. "(IT) 8" with two years
+    # is the model joining fragments, even when each fragment is in the quote.
+    data['education'] = [
+        item
+        for item in data.get('education') or []
+        if DEGREE.search(item.get('title') or '')
+        or INSTITUTION.search(item.get('title') or '')
+        or INSTITUTION.search(item.get('organization') or '')
+    ]
+    # Links are web addresses or profile handles, never an email or a phone number.
+    data['links'] = [link for link in data.get('links') or [] if _is_link(link)]
+    # Languages are the languages a person speaks; programming languages are skills.
+    skills = {canonical(skill) for skill in data.get('skills') or []}
+    data['languages'] = [
+        language
+        for language in data.get('languages') or []
+        if canonical(language) not in skills and not PROGRAMMING.search(language)
+    ]
     # Education belongs in education: a degree under other_information is the model
     # filing it in the wrong place, and the education reader has it already.
     data['other_information'] = [

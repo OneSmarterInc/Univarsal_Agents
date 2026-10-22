@@ -163,6 +163,43 @@ def split_words(text):
     return len(SPLIT_WORD.findall(text))
 
 
+def letter_per_line(text):
+    """True when most lines hold one character: a text layer that broke every letter
+    onto its own line ("P\\nI\\nY\\nU..."), which nothing downstream can read."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return len(lines) >= 20 and sum(len(line) == 1 for line in lines) > 0.6 * len(lines)
+
+
+# Text a PDF stores as UTF-8 read as Windows-1252: "â€“" for "–", "ðŸ“§" for an emoji.
+MOJIBAKE = re.compile(r'(?:â€|Ã[\x80-\xbf]|ðŸ|Â[\xa0-\xbf])')
+
+
+def repair_mojibake(text):
+    """Undo UTF-8 read as Windows-1252, line by line, only where it gives clean text."""
+    if not MOJIBAKE.search(text):
+        return text
+    fixed = []
+    for line in text.split('\n'):
+        if MOJIBAKE.search(line):
+            try:
+                line = line.encode('cp1252', errors='strict').decode('utf-8', errors='strict')
+            except UnicodeError:
+                try:
+                    repaired = line.encode('cp1252', errors='ignore').decode('utf-8', errors='ignore')
+                    line = repaired if repaired.strip() else line
+                except UnicodeError:
+                    pass
+        fixed.append(line)
+    return '\n'.join(fixed)
+
+
+# A heading set with a space between its letters: "C O N T A C T", "E D U C AT I O N".
+SPACED_HEADING = re.compile(r'(?m)^(?:[A-Z&]{1,2} ){3,}[A-Z&]{1,2}$')
+
+# Private-use symbols some CV templates use as bullets (Wingdings and icon fonts).
+PRIVATE_USE = re.compile('[\ue000-\uf8ff]')
+
+
 DASHES = '-‐‑‒–—'
 
 
@@ -361,6 +398,9 @@ def best_pdf_text(path, pypdf_pages):
 
     for first, second in zip(pypdf_pages, pdfium_pages, strict=False):
         lost_text = size(second) < 0.8 * size(first)
+        if letter_per_line(first) and not letter_per_line(second) and not lost_text:
+            chosen.append(second)  # pypdf broke every letter onto its own line
+            continue
         chosen.append(
             first if lost_text or split_words(second) > split_words(first) else restore_dashes(second, first)
         )
@@ -497,7 +537,9 @@ def read_document(path, clean=None):
     if path.suffix == '.docx':
         text = _docx_text(path)
     elif path.suffix == '.pdf':
-        text = _pdf_text(path)
+        text = PRIVATE_USE.sub('•', repair_mojibake(_pdf_text(path)))
+    if not screenshot:
+        text = SPACED_HEADING.sub(lambda m: m.group().replace(' ', ''), text)
     else:
         # Screenshots: keep the page's main column, not its sidebar.
         with Image.open(path) as image:

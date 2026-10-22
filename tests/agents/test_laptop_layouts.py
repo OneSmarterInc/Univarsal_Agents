@@ -152,3 +152,94 @@ def test_a_location_is_quoted_from_its_own_line():
     }
     out = validate_data(location, CARD)
     assert out['location']['value'] == 'Example Metropolitan Region'
+
+
+# --- second laptop round: 7 student CVs ----------------------------------------------
+
+PROJECTS_CV = """RIYA EXAMPLE
+riya@example.com | Exampletown
+PROJECTS
+Student Online Portal
+Technologies: HTML, CSS, MySQL
+● Built a web portal for student records.
+● Used MySQL for the records.
+Clinic Bridge
+Hackathon Project | Technologies: MERN Stack
+● Linked two medical code lists.
+Voice Messenger | Personal Project
+• Built a voice messaging tool that turns speech
+into text messages.
+• Used Python and gTTS.
+CERTIFICATIONS & ACHIEVEMENTS
+● German Language – A1
+EXTRACURRICULARACTIVITIES
+• Member of the coding club."""
+
+
+def test_projects_without_dates_are_read_from_their_titles_and_bullets():
+    projects = layout_entries(PROJECTS_CV, 'projects')
+    assert [p['title'] for p in projects] == ['Student Online Portal', 'Clinic Bridge', 'Voice Messenger']
+    assert 'Technologies: HTML, CSS, MySQL' in projects[0]['description']
+    assert projects[2]['description'].endswith('Used Python and gTTS.')
+    assert all('German' not in p['evidence'] for p in projects)
+
+
+def test_a_bullet_line_with_a_year_is_never_a_new_entry():
+    source = """PROJECTS
+Mind Map App Aug 2025
+• Built a planning app for students.
+• Won the Best Idea Award at Example Fest 2025."""
+    assert [p['title'] for p in layout_entries(source, 'projects')] == ['Mind Map App']
+
+
+def test_a_title_that_wraps_onto_a_second_line_keeps_its_date():
+    source = """PROJECTS
+Skin Check — Image Classifier Example Chapter AI/ML
+Internship, 2026
+● Trained a classifier on 15,000
+images from two public sets.
+Room Finder
+● Built a rental site."""
+    projects = layout_entries(source, 'projects')
+    assert [(p['title'], p['start_date']) for p in projects] == [
+        ('Skin Check', '2026'),  # the title is the part before the dash, as for every entry
+        ('Room Finder', None),
+    ]
+
+
+def test_headings_are_not_degrees():
+    from agents_service.agents.cv.source_education import DEGREE, is_section_heading
+
+    for heading in ('ABOUT ME', 'P R O F E S S I O N A L', 'doctors and patients'):
+        assert not DEGREE.search(heading), heading
+    for degree in ('BE', 'BE (Information Technology)', 'B.E. in IT', 'HSC', 'Doctor of Philosophy'):
+        assert DEGREE.search(degree), degree
+    assert is_section_heading('EXTRACURRICULARACTIVITIES') and is_section_heading('Leadership & Activities')
+    assert not is_section_heading('Digital Lab Projects Example') and not is_section_heading(
+        'Example College'
+    )
+
+
+def test_model_education_without_a_degree_or_school_links_and_languages_are_checked():
+    source = 'B.E (IT) 8.56 SGPA Example College\nHSC 2024\nriya@example.com\nEnglish Hindi Python\ngithub.com/riya'
+    junk = {'title': '(IT) 8', 'organization': None, 'start_date': '2024', 'end_date': None,
+            'description': None, 'technologies': [], 'url': None, 'evidence': 'B.E (IT) 8.56 SGPA Example College\nHSC 2024'}  # fmt: skip
+    kept = supported_resume(
+        {'education': [junk], 'links': ['riya@example.com', 'github.com/riya'],
+         'languages': ['English', 'Hindi', 'Python'], 'skills': ['Python'], 'warnings': []},
+        source,
+    )  # fmt: skip
+    assert kept['education'] == []
+    assert kept['links'] == ['github.com/riya']
+    assert kept['languages'] == ['English', 'Hindi']
+
+
+def test_pdf_text_repairs():
+    from agents_service.documents.reading import PRIVATE_USE, SPACED_HEADING, letter_per_line, repair_mojibake
+
+    assert repair_mojibake('Example State â€“ 444000') == 'Example State – 444000'
+    assert PRIVATE_USE.sub('•', ' Python') == '• Python'
+    assert SPACED_HEADING.sub(lambda m: m.group().replace(' ', ''), 'C O N T A C T\nE D U C AT I O N') == (
+        'CONTACT\nEDUCATION'
+    )
+    assert letter_per_line('\n'.join('RIYAEXAMPLESTUDENTCV')) and not letter_per_line('Riya Example\n' * 30)

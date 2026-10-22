@@ -74,6 +74,14 @@ def build_parser():
 
 
 def main(argv=None):
+    # Results hold any character ("●", "–"). Windows sends a pipe or file through an old
+    # code page that has none of them, so always write UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            try:
+                stream.reconfigure(encoding='utf-8')
+            except (ValueError, OSError):
+                pass
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
     # httpx logs full request addresses (which can hold an API key) at INFO.
