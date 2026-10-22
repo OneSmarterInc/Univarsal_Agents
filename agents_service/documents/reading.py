@@ -20,6 +20,12 @@ class ExtractionError(Exception):
     """A safe, actionable message that may be shown to the candidate."""
 
 
+def public_message(code):
+    from agents_service.core.errors import MESSAGES
+
+    return MESSAGES.get(code, MESSAGES['invalid_document'])
+
+
 def main_column_text(data, width):
     """Text of the main column only, from tesseract word boxes.
 
@@ -275,7 +281,12 @@ def _docx_parts(archive, root):
 
 def _docx_text(path):
     # Resolve only local header/footer parts referenced by the document.
+    from agents_service.documents.safety import deep_check_docx
+
     with zipfile.ZipFile(path) as archive:
+        problem = deep_check_docx(archive)
+        if problem:
+            raise ExtractionError(public_message(problem))
         root = ElementTree.fromstring(archive.read('word/document.xml'))
         chunks, total = [], 0
         for part in _docx_parts(archive, root):
@@ -318,7 +329,15 @@ def _pdf_text(path):
     from pypdf import PdfReader
 
     reader = PdfReader(path)
-    if len(reader.pages) > PDF_MAX_PAGES:
+    if reader.is_encrypted:
+        raise ExtractionError(public_message('invalid_document'))
+    # The declared count is read first: a huge page tree is refused before it is walked.
+    # The real count is still checked below, because the declared one can be wrong.
+    try:
+        declared = int(reader.trailer['/Root']['/Pages'].get('/Count', 0))
+    except Exception:  # noqa: BLE001 - a broken catalogue is checked by the full count below
+        declared = 0
+    if declared > PDF_MAX_PAGES or len(reader.pages) > PDF_MAX_PAGES:
         raise ExtractionError(f'Upload a PDF with no more than {PDF_MAX_PAGES} pages.')
     pages = best_pdf_text(path, [p.extract_text() or '' for p in reader.pages])
     # Read each sparse page, including scanned pages inside a mixed PDF.

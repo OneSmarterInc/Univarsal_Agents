@@ -4,30 +4,29 @@ A broken or hostile file can only harm that child process: it gets no secrets
 (a scrubbed environment), a time limit, and on Linux also memory, CPU and file
 limits. On Windows the limits are skipped; the process boundary and time limit
 remain.
+
+Each read gets its own empty folder, which is the child's working folder and
+temp folder. The child and everything it starts (tesseract) are one process
+group, killed together when time runs out; the folder is then deleted, so no
+page image or OCR text of the file stays on disk.
 """
 
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 from importlib import import_module
+from pathlib import Path
 
 from agents_service.documents import reading
 from agents_service.documents.reading import ExtractionError
 
-SAFE_ENV = (
-    'PATH',
-    'SYSTEMROOT',
-    'WINDIR',
-    'TEMP',
-    'TMP',
-    'TMPDIR',
-    'LANG',
-    'LC_ALL',
-    'TESSDATA_PREFIX',
-    'HOME',
-    'USERPROFILE',
-)
+SAFE_ENV = ('PATH', 'SYSTEMROOT', 'WINDIR', 'LANG', 'LC_ALL', 'TESSDATA_PREFIX')
+# Where agents_service lives, so the child imports it from any working folder.
+PACKAGE_ROOT = str(Path(__file__).resolve().parents[2])
 
 
 def resolve(clean):
@@ -43,7 +42,26 @@ def read_text(path, settings, clean=None):
     if not getattr(settings, 'isolate_parsing', True):
         reading.TESSERACT_CMD = settings.tesseract_cmd
         return reading.read_document(path, clean=resolve(clean))
+    folder = tempfile.mkdtemp(prefix='agents-read-')
+    try:
+        stdout = _run_child(Path(path).resolve(), clean, settings, folder)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    if len(stdout) > 4 * 1024 * 1024:
+        raise ExtractionError('The file produced more text than the processing limit.')
+    try:
+        answer = json.loads(stdout or b'{}')
+    except ValueError:
+        answer = {}
+    if 'text' in answer:
+        return answer['text']
+    raise ExtractionError(answer.get('error') or 'The file could not be read. It may be broken or protected.')
+
+
+def _run_child(path, clean, settings, folder):
     env = {k: v for k, v in os.environ.items() if k in SAFE_ENV}
+    env.update(TMPDIR=folder, TEMP=folder, TMP=folder, HOME=folder, USERPROFILE=folder)
+    env['PYTHONPATH'] = PACKAGE_ROOT
     command = [
         sys.executable,
         '-m',
@@ -53,27 +71,50 @@ def read_text(path, settings, clean=None):
         settings.tesseract_cmd or '',
         str(settings.file_seconds),
     ]
-    # Own process group: Ctrl+C on the worker ("stop after this job") must not kill the reader.
+    # Own process group: Ctrl+C on the worker ("stop after this job") must not kill the
+    # reader, and on timeout the whole group (with tesseract) is killed at once.
     group = (
         {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP}
         if sys.platform == 'win32'
         else {'start_new_session': True}
     )
+    proc = subprocess.Popen(
+        command,
+        env=env,
+        cwd=folder,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        **group,
+    )
     try:
-        proc = subprocess.run(
-            command, env=env, capture_output=True, timeout=settings.file_seconds, check=False, **group
-        )
+        stdout, _ = proc.communicate(timeout=settings.file_seconds)
     except subprocess.TimeoutExpired as exc:
         raise ExtractionError('Reading this file took too long. Upload a smaller or clearer file.') from exc
-    if len(proc.stdout) > 4 * 1024 * 1024:
-        raise ExtractionError('The file produced more text than the processing limit.')
+    finally:
+        _kill_group(proc)
+    return stdout
+
+
+def _kill_group(proc):
+    """Stop the child and anything it started; safe to call when all have ended."""
+    if sys.platform == 'win32':
+        if proc.poll() is None:
+            taskkill = Path(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'System32', 'taskkill.exe')
+            subprocess.run(
+                [str(taskkill), '/F', '/T', '/PID', str(proc.pid)], capture_output=True, check=False
+            )
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
     try:
-        answer = json.loads(proc.stdout or b'{}')
-    except ValueError:
-        answer = {}
-    if 'text' in answer:
-        return answer['text']
-    raise ExtractionError(answer.get('error') or 'The file could not be read. It may be broken or protected.')
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    if proc.stdout:
+        proc.stdout.close()
 
 
 def _limit_resources(seconds):

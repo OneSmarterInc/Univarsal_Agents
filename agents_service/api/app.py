@@ -26,6 +26,14 @@ log = logging.getLogger(__name__)
 API_VERSION = '1.0'
 
 
+SMALL_BODY = 64 * 1024 + 1024 * 1024
+
+
+def body_limit(rule):
+    """The largest request an agent accepts: all its files plus room for the form."""
+    return rule.max_files * rule.max_bytes + 1024 * 1024 if rule else SMALL_BODY
+
+
 def bearer(request):
     value = request.headers.get('authorization', '')
     if not value.startswith('Bearer '):
@@ -36,8 +44,10 @@ def bearer(request):
 def create_app(services=None):
     services = services or build()
     settings = services.settings
-    rules = [a.file_rule(settings) for a in services.agents.values()]
-    max_body = max([r.max_files * r.max_bytes for r in rules if r] + [64 * 1024]) + 1024 * 1024
+    # Each agent's upload limit is its own; every other address takes small bodies only.
+    body_limits = {
+        f'/v1/{agent.name}/jobs': body_limit(agent.file_rule(settings)) for agent in services.agents.values()
+    }
 
     app = FastAPI(
         title='Univarsal Agents',
@@ -47,7 +57,7 @@ def create_app(services=None):
         openapi_url=None,
     )
     app.state.services = services
-    app.add_middleware(Boundary, max_body=max_body)
+    app.add_middleware(Boundary, max_body=SMALL_BODY, body_limits=body_limits)
 
     @app.exception_handler(ServiceError)
     async def service_error(request, exc):

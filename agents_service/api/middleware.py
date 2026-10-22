@@ -27,8 +27,9 @@ class Boundary:
     route can check the API key before a large upload is read at all.
     """
 
-    def __init__(self, app, max_body):
+    def __init__(self, app, max_body, body_limits=None):
         self.app, self.max_body = app, max_body
+        self.body_limits = body_limits or {}
 
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
@@ -57,7 +58,8 @@ class Boundary:
             if b'origin' in headers and scope['path'] not in PUBLIC:
                 raise ServiceError('browser_calls_not_allowed', 403)
             if scope['method'] in ('POST', 'PUT', 'PATCH'):
-                receive = self._counted(headers, receive)
+                limit = self.body_limits.get(scope['path'].rstrip('/'), self.max_body)
+                receive = self._counted(headers, receive, limit)
             await self.app(scope, receive, safe_send)
         except ServiceError as exc:
             if not started:
@@ -67,13 +69,13 @@ class Boundary:
             if not started:
                 await error_response(ServiceError('internal_error', 500), request_id)(scope, receive, send)
 
-    def _counted(self, headers, receive):
+    def _counted(self, headers, receive, limit):
         if b'content-length' in headers:
             try:
                 length = int(headers[b'content-length'])
             except ValueError:
                 raise ServiceError('invalid_request', 400) from None
-            if length < 0 or length > self.max_body:
+            if length < 0 or length > limit:
                 raise ServiceError('request_too_large', 413)
         size = 0
 
@@ -81,7 +83,7 @@ class Boundary:
             nonlocal size
             message = await receive()
             size += len(message.get('body', b''))
-            if size > self.max_body:
+            if size > limit:
                 raise ServiceError('request_too_large', 413)
             return message
 
