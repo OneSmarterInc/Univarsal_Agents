@@ -45,7 +45,8 @@ class Job(Base):
     lease_expires_at = Column(Float)
     created_at = Column(Float, nullable=False)
     # When the job last joined the line: set on creation and on every retry.
-    queued_at = Column(Float, nullable=False)
+    # Empty only for jobs queued by a 1.0 server during an upgrade (created_at counts then).
+    queued_at = Column(Float)
     started_at = Column(Float)
     finished_at = Column(Float)
     expires_at = Column(Float, nullable=False)

@@ -68,7 +68,7 @@ def _run_child(path, clean, settings, folder):
         'agents_service.documents.isolation',
         str(path),
         clean or '',
-        settings.tesseract_cmd or '',
+        absolute_command(settings.tesseract_cmd),
         str(settings.file_seconds),
     ]
     # Own process group: Ctrl+C on the worker ("stop after this job") must not kill the
@@ -94,6 +94,16 @@ def _run_child(path, clean, settings, folder):
     finally:
         _kill_group(proc)
     return stdout
+
+
+def absolute_command(command):
+    """A relative program path made absolute, since the reader runs in its own folder.
+
+    A bare name such as "tesseract" is looked up on PATH and stays as it is.
+    """
+    if not command or (os.sep not in command and (os.altsep or '/') not in command):
+        return command or ''
+    return str(Path(command).resolve())
 
 
 def _kill_group(proc):

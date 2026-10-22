@@ -158,3 +158,12 @@ def test_reader_sees_no_secrets(tmp_path, docx_bytes, monkeypatch):
 
 def show_environment(text, screenshot):
     return json.dumps({'env': sorted(os.environ), 'cwd': os.getcwd()})
+
+
+def test_a_relative_tesseract_path_still_works_in_the_reader_folder(tmp_path, monkeypatch):
+    from agents_service.documents.isolation import absolute_command
+
+    monkeypatch.chdir(tmp_path)
+    assert absolute_command('tesseract') == 'tesseract'  # found on PATH
+    assert absolute_command('') == ''
+    assert absolute_command('bin/tesseract') == str(tmp_path / 'bin' / 'tesseract')

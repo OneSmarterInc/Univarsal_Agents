@@ -11,6 +11,7 @@
 """
 
 import hashlib
+import hmac
 import json
 import secrets
 import time
@@ -38,7 +39,12 @@ def iso(value):
     return datetime.fromtimestamp(value, UTC).isoformat() if value else None
 
 
-def request_digest(agent, files, data, options, subject_ref):
+def request_digest(pepper, agent, files, data, options, subject_ref):
+    """Fingerprint of a request, to spot a reused Idempotency-Key with other content.
+
+    Keyed with the pepper, so the stored value cannot be used to guess the input
+    data (a number or a date of birth) after that data is deleted.
+    """
     body = {
         'agent': agent,
         'files': [[f['name'], f['sha256']] for f in files],
@@ -46,7 +52,7 @@ def request_digest(agent, files, data, options, subject_ref):
         'options': options,
         'subject_ref': subject_ref,
     }
-    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+    return hmac.new(pepper.encode(), json.dumps(body, sort_keys=True).encode(), hashlib.sha256).hexdigest()
 
 
 class JobLine:
@@ -63,7 +69,7 @@ class JobLine:
         files: [{'name', 'suffix', 'raw', 'sha256'}], already safety-checked.
         """
         data, options = data or {}, options or {}
-        digest = request_digest(agent, files, data, options, subject_ref)
+        digest = request_digest(self.settings.key_pepper, agent, files, data, options, subject_ref)
         idem = None
         if idempotency_key is not None:
             if not 1 <= len(idempotency_key) <= 100:
@@ -150,7 +156,13 @@ class JobLine:
                 s.execute(
                     update(Job)
                     .where(Job.id == job.id, Job.state.in_(WAITING))
-                    .values(state='cancelled', finished_at=now, lease_owner=None, error_code='cancelled')
+                    .values(
+                        state='cancelled',
+                        finished_at=now,
+                        expires_at=now + self.settings.result_retention_seconds,
+                        lease_owner=None,
+                        error_code='cancelled',
+                    )
                 )
             s.refresh(job)
             job.result = None
@@ -238,6 +250,7 @@ class JobLine:
                     error_code=error_code,
                     options=without_data(job.options),
                     finished_at=now,
+                    expires_at=now + self.settings.result_retention_seconds,
                     lease_owner=None,
                     lease_expires_at=None,
                 )
@@ -281,7 +294,9 @@ class JobLine:
         with self.db.session() as s:
             for job in s.scalars(
                 select(Job).where(
-                    Job.state == 'queued', Job.queued_at < now - self.settings.queue_expiry_seconds
+                    Job.state == 'queued',
+                    # A job queued by a server still on version 1.0 has no queued_at yet.
+                    func.coalesce(Job.queued_at, Job.created_at) < now - self.settings.queue_expiry_seconds,
                 )
             ):
                 if s.execute(
@@ -291,6 +306,7 @@ class JobLine:
                         state='expired',
                         error_code='expired',
                         finished_at=now,
+                        expires_at=now + self.settings.result_retention_seconds,
                         options=without_data(job.options),
                     )
                 ).rowcount:
@@ -303,6 +319,7 @@ class JobLine:
                         'state': 'failed',
                         'error_code': 'worker_lost',
                         'finished_at': now,
+                        'expires_at': now + self.settings.result_retention_seconds,
                         'options': without_data(job.options),
                     }
                     if out_of_attempts

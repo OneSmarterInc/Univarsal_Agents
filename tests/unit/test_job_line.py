@@ -334,3 +334,37 @@ def test_queue_position_follows_fair_turns(services):
     job = services.jobs.get(Principal('key_small00000000000', 'small', 'cv'), mine)
     # Only one busy-project job runs before the small project's turn; LinkedIn jobs do not count.
     assert job['queue']['position'] == 2
+
+
+def test_a_job_queued_by_an_older_server_still_expires(services):
+    (job_id,) = queue(services)
+    with services.db.session() as s:  # a 1.0 server inserts jobs without queued_at
+        s.execute(update(Job).where(Job.id == job_id).values(queued_at=None, created_at=time.time() - 3600))
+    services.jobs.sweep()
+    assert state(services, job_id) == 'expired'
+
+
+def test_results_are_kept_for_the_retention_time_after_they_finish(services):
+    (job_id,) = queue(services)
+    with services.db.session() as s:  # created long ago, retried, finished now
+        s.execute(update(Job).where(Job.id == job_id).values(created_at=time.time() - 30 * 86400))
+    services.jobs.claim('w', ['cv'])
+    services.jobs.finish(job_id, 'w', 'done', {'records': []})
+    with services.db.session() as s:
+        job = s.get(Job, job_id)
+        assert job.expires_at >= job.finished_at + services.settings.result_retention_seconds - 1
+    services.jobs.sweep()
+    assert state(services, job_id) == 'done'
+
+
+def test_the_stored_request_fingerprint_does_not_reveal_the_input(services):
+    import hashlib
+    import json
+
+    principal = Principal('key_a000000000000000', 'a', 'cv')
+    data = {'number': '1234567893'}
+    job = services.jobs.create(principal, 'cv', data=data)
+    plain = {'agent': 'cv', 'files': [], 'data': data, 'options': {}, 'subject_ref': None}
+    guess = hashlib.sha256(json.dumps(plain, sort_keys=True).encode()).hexdigest()
+    with services.db.session() as s:
+        assert s.get(Job, job['id']).request_digest != guess

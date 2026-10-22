@@ -19,8 +19,8 @@ def upgrade():
     with op.batch_alter_table('jobs') as batch:
         batch.add_column(sa.Column('queued_at', sa.Float))
     op.execute('UPDATE jobs SET queued_at = created_at')
-    with op.batch_alter_table('jobs') as batch:
-        batch.alter_column('queued_at', existing_type=sa.Float, nullable=False)
+    # Left nullable: a server still running 1.0 during a rolling upgrade inserts
+    # jobs without it, and the line then uses created_at for those.
     op.create_index('ix_jobs_queue_expiry', 'jobs', ['state', 'queued_at'])
 
 

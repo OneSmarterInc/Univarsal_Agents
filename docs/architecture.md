@@ -70,5 +70,5 @@ only `ai/` talks to a model; only `core/storage.py` touches disk or S3.
 - Uploads are checked by content (PDF header, Word archive rules, image decoding) before storage.
 - Each file is read in a separate process with a time limit and, on Linux, memory and CPU limits.
 - Every fact must be an exact quote from the file, or it is dropped.
-- No file content is logged. Files are deleted when the job ends; results after 7 days.
+- No file content is logged. Files and input data are deleted when the job ends; results 7 days after it ends.
 - S3 files are encrypted at rest (SSE-S3). Use HTTPS in front of the API on servers.

@@ -9,8 +9,12 @@
   timeout the reader and everything it started (tesseract) are killed together.
 - Each agent's upload limit applies to its own address only.
 - A database error while saving no longer marks a good result failed; the job returns to
-  the line. A retried job gets a fresh wait (new column `queued_at`, migration 0002).
-- The sweep never deletes a waiting or running job. A job's input data is deleted when it ends.
+  the line if it has attempts left. A retried job gets a fresh wait (new column `queued_at`,
+  migration 0002; jobs from a 1.0 server during an upgrade use `created_at`).
+- The sweep never deletes a waiting or running job. Results are kept 7 days after the job
+  ends (was: after it was created). A job's input data is deleted when it ends, and the
+  stored request fingerprint is keyed, so it cannot be used to guess that data.
+- A relative `AGENTS_TESSERACT_CMD` is made absolute for the reader process.
 - Fair turns count only the agents a worker serves. Running jobs check the line every 10 s.
 - Job line settings that would break it are refused at start.
 - Model overrides that change the provider or server get that provider's limits and never

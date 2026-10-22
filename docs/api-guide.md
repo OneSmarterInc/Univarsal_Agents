@@ -184,7 +184,7 @@ Every error has the same shape:
 | CV | 1 file, PDF up to 30 pages, text up to 36,000 characters |
 | LinkedIn | 1–5 screenshots |
 | Waiting before `expired` | 30 minutes |
-| Results kept | 7 days, then deleted (download what you need) |
+| Results kept | 7 days after the job ends, then deleted (download what you need) |
 
 `GET /v1/agents` always shows the current limits.
 
