@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.0 — lookup agents: NPPES, OIG, SAM (October 2026)
+
+- Three lookup agents, ported from OneSmarter's kormic-agents package: **NPPES** (a US NPI
+  at CMS), **OIG** (HHS-OIG exclusion list) and **SAM** (SAM.gov exclusions). Off by
+  default; see [Lookup agents](lookup-agents.md).
+- Changes from the original: the agents compare no names (projects do); OIG no longer
+  says an NPI-only hit matched on the name; SAM reads every page instead of the first 50
+  and refuses a partial answer; SAM's daily limit is shared by every worker and answers
+  are cached; the OIG list is loaded once and shared by every worker.
+- Shared support for lookup agents: `lookups/http.py` (safe outside calls), `JobFailed`
+  with new job error codes, agents' own settings (`AGENTS_<AGENT>_...`), a shared daily
+  limit, a cache of outside answers and reference files (migration 0003),
+  `agents tool <agent> <command>`, and each agent's state in `/health/ready`.
+- httpx's own request logging (full addresses, so any key in them) is switched off.
+
 ## 1.1.0 — fixes from the second review (October 2026)
 
 - Hostile files stay out of the API: the API runs only quick checks (size, type, header,

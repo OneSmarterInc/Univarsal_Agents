@@ -1,16 +1,22 @@
 # Universal Agents
 
-Shared **extraction agents** for every OneSmarter project. A project sends a file
-to an agent with its API key; the agent reads it and returns everything it found
-as JSON, with the exact quote from the file for every fact. Each project then
-applies its own rules (for example, Kormic Careers checks the name against the
+Shared **extraction and lookup agents** for every OneSmarter project. A project sends a
+file (or, for a lookup, JSON) to an agent with its API key; the agent returns everything
+it found as JSON, with the exact quote or the outside source for every fact. Each project
+then applies its own rules (for example, Kormic Careers checks the name against the
 person's profile).
 
 | Agent | Reads | Address |
 |---|---|---|
 | CV | 1 PDF or Word CV | `/v1/cv/jobs` |
 | LinkedIn | 1–5 profile screenshots (PNG, JPG, WebP) | `/v1/linkedin/jobs` |
+| NPPES | A US NPI number, looked up at CMS | `/v1/nppes/jobs` |
+| OIG | A person, screened against the HHS-OIG exclusion list | `/v1/oig/jobs` |
+| SAM | A person, screened against SAM.gov exclusions | `/v1/sam/jobs` |
 | More agents | Add a folder (see [Adding an agent](docs/adding-an-agent.md)) | `/v1/<name>/jobs` |
+
+CV and LinkedIn are on by default; NPPES, OIG and SAM are switched on with
+`AGENTS_ENABLED_AGENTS` (see [Lookup agents](docs/lookup-agents.md)).
 
 - **Keys:** each project gets its own key for each agent it uses. A CV key works only on the CV agent.
 - **Model:** Qwen on Ollama by default. A setting can switch an agent to an API-key model later.
@@ -25,6 +31,7 @@ person's profile).
 | Admins handing out keys | [Keys](docs/keys.md) |
 | The model (Ollama, API key, GPU) | [Model setup](docs/model-setup.md) |
 | How the code is organised | [Architecture](docs/architecture.md) |
+| NPPES, OIG and SAM: setup and answers | [Lookup agents](docs/lookup-agents.md) |
 | Adding a new agent | [Adding an agent](docs/adding-an-agent.md) |
 | What changed | [Changelog](docs/changelog.md) · [Decisions](docs/decisions/) |
 
@@ -52,6 +59,7 @@ Full steps, including Tesseract and Ollama: [Running locally](docs/running-local
 | `agents create-key --project P --agent A` | Makes a key (shown once) |
 | `agents list-keys` / `agents revoke-key KEY_ID` | Lists or blocks keys |
 | `agents try --agent A --key K --file F` (or `--data '{...}'`) | Sends files (or JSON for a lookup agent) like a project would and prints the result |
+| `agents tool AGENT COMMAND` | An agent's own command, for example `agents tool oig load` |
 | `agents stats` | Usage per project and agent, and the waiting line |
 | `agents model-check` | Checks the model answers |
 | `agents accuracy` | Runs made-up documents through the real model and scores them |

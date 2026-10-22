@@ -73,6 +73,21 @@ agents try --agent linkedin --key <linkedin key> --file shot1.png --file shot2.p
 
 `try` uploads, waits and prints the result JSON a project would get.
 
+**Level 1b: the lookup agents (NPPES, OIG, SAM)**
+
+Add `nppes,oig,sam` to `AGENTS_ENABLED_AGENTS` in `.env` and restart. Then:
+
+```powershell
+agents create-key --project test --agent nppes
+agents try --agent nppes --key <key> --data '{\"npi\": \"1104130236\"}'
+agents tool oig load --file D:\test\UPDATED.csv --as-of 2026-10-01
+agents try --agent oig --key <oig key> --data '{\"full_name\": \"First Last\"}'
+```
+
+SAM needs `AGENTS_SAM_API_KEY` in `.env`, and a free key allows only 10 calls a day: plan
+the tests first. On PowerShell, quotes inside `--data` need a backslash as shown; or put
+the JSON in a file and use `--data-file person.json`. Details: [Lookup agents](lookup-agents.md).
+
 **Level 2: several projects at once**
 
 - Make keys for two projects (`--project alpha`, `--project beta`), start `try` for both

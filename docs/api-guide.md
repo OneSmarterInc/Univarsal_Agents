@@ -151,6 +151,12 @@ so no user request waits for minutes.
 |---|---|
 | CV | name, email, phone, location, summary, links, institution, major, graduation_year, gpa, gpa_scale, education, work_experience_entries, projects, publications, certifications, awards, volunteering, skills, languages, other_information |
 | LinkedIn | name, headline, about, location, skills, experiences, education, projects, posts, certifications |
+| NPPES | npi, full_name, npi_status, npi_type, npi_enumerated_on, credential, taxonomy, practice_state, former_name, claimed_registration |
+| OIG | oig_exclusion |
+| SAM | sam_exclusion |
+
+The lookup agents (NPPES, OIG, SAM), their input and what their answers mean:
+[Lookup agents](lookup-agents.md).
 
 ## 4. Errors
 
@@ -172,6 +178,16 @@ Every error has the same shape:
 | 429 | `rate_limited`, `project_queue_full`, `busy` | Wait `Retry-After` seconds, then retry |
 | 503 | `database_unavailable`, `storage_unavailable` | Retry shortly |
 
+A finished job can also carry an `error` (state `failed`):
+
+| code | What to do |
+|---|---|
+| `no_records` | Nothing could be read from the files; check the file |
+| `model_unavailable`, `worker_lost`, `expired` | Send it again later |
+| `source_unavailable`, `daily_limit_reached` | Lookup agents: send it again later (tomorrow for the daily limit) |
+| `not_configured`, `source_rejected`, `source_unreadable`, `source_incomplete` | Lookup agents: nothing was checked; see [Lookup agents](lookup-agents.md) |
+| `internal_error` | Tell the service owner the job id |
+
 ## 5. Limits (defaults)
 
 | Limit | Value |
@@ -183,6 +199,7 @@ Every error has the same shape:
 | File size | 10 MB |
 | CV | 1 file, PDF up to 30 pages, text up to 36,000 characters |
 | LinkedIn | 1–5 screenshots |
+| SAM | The service's SAM.gov daily limit (10 a day with a free key), shared by all projects |
 | Waiting before `expired` | 30 minutes |
 | Results kept | 7 days after the job ends, then deleted (download what you need) |
 

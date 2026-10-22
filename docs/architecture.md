@@ -21,12 +21,13 @@ Each layer uses only the layers below it. `tests/architecture/test_layers.py` ch
 ```
 1. Entry points   api/  worker/  cli/            how requests come in
 2. Agents         agents/cv  agents/linkedin  …  one folder per agent
-3. Shared tools   ai/  documents/                model calls; file reading, OCR, safety
+3. Shared tools   ai/  documents/  lookups/      model calls; file reading, OCR, safety; outside sources
 4. Core           core/                          keys, jobs, storage, limits, usage, config, db
 ```
 
 Rules: an agent never imports another agent; agents never import `api/` or `worker/`;
-only `ai/` talks to a model; only `core/storage.py` touches disk or S3.
+only `ai/` talks to a model; agents call outside sources only through `lookups/http.py`;
+only `core/storage.py` touches disk or S3.
 `agents_service/services.py` wires the layers together.
 
 ## Folders
@@ -36,8 +37,9 @@ only `ai/` talks to a model; only `core/storage.py` touches disk or S3.
 | `api/` | `app.py` (routes built from the agent registry), `middleware.py` (request id, browser refusal, size limit, safe errors), `inputs.py` |
 | `agents/` | `base.py` (the agent contract), `registry.py` (the list), `records.py` (shared record building), one folder per agent, `_template/` (file agent) and `_template_data/` (lookup agent) |
 | `ai/` | `providers.py` (Ollama/OpenAI-compatible and Anthropic, timing, cancellation), `schema.py` |
+| `lookups/` | `http.py` (outside calls: HTTPS, time and size limits, no keys in logs), `screening.py` (list-search rules), `values.py` |
 | `documents/` | `reading.py` (PDF, Word, OCR), `isolation.py` (separate limited process), `safety.py` (upload checks), `matching.py`, `text.py` |
-| `core/` | `config.py`, `db.py`, `models.py`, `keys.py`, `jobs.py`, `storage.py`, `limits.py`, `usage.py`, `audit.py`, `errors.py` |
+| `core/` | `config.py`, `db.py`, `models.py`, `keys.py`, `jobs.py`, `storage.py`, `limits.py` (also daily limits), `cache.py` (outside answers), `references.py` (agents' reference files), `usage.py`, `audit.py`, `errors.py` |
 | `worker/` | `runner.py` (borrow, run, renew, save) |
 | `cli/` | `main.py` (the `agents` command), `accuracy.py` |
 | `migrations/` | Database upgrades (Alembic) |
@@ -53,6 +55,8 @@ only `ai/` talks to a model; only `core/storage.py` touches disk or S3.
   deleted after `AGENTS_RESULT_RETENTION_SECONDS`. Workers run this housekeeping every minute.
 - If the model cannot be reached, the job goes back to the line once, then fails as
   `model_unavailable`. A cancelled job stops before its next model question.
+- A lookup agent ends a job with its own code (`JobFailed`); an outside source that did not
+  answer gets one more try, then `source_unavailable`.
 
 ## Growth
 

@@ -41,8 +41,20 @@ An agent is one folder. The API addresses, keys, limits, job line, usage and
    **Lookup agents** build each record with `data_record(section, details, source, retrieved_at)`.
    `source` is a public address (never one carrying a key); `retrieved_at` is when the data
    was fetched, or the publication date of a downloaded list. Call `job.check_cancelled()`
-   between outside requests. Use `httpx` with a timeout. The job's input data is deleted
-   when the job ends; only the result is kept.
+   between outside requests. The job's input data is deleted when the job ends; only the
+   result is kept. The NPPES, OIG and SAM agents are full examples.
+
+   | Need | Use |
+   |---|---|
+   | Call an outside source | `lookups.http.get_json(url, params=..., seconds=..., source=...)`: HTTPS only, time and size limits, keys never logged. Agents may not import httpx themselves |
+   | End the job with a reason | `raise JobFailed('source_unavailable', retry=True)` (one more try), or another code from `JOB_ERRORS` in `core/jobs.py` |
+   | The agent's own settings | `settings_model = MySettings` (pydantic). Read from `AGENTS_<AGENT>_<FIELD>`; given to the job as `job.agent_settings`. Missing ones fail jobs as `not_configured`. Use `SecretStr` for keys |
+   | A daily limit of the source | `job.use_quota('search', limit)`: shared by every worker |
+   | Reuse answers | `job.cache.get(question)` / `job.cache.put(question, value, seconds)` |
+   | A file an operator loads (a published list) | `job.references.info(name)`, `job.references.local_copy(name)`, and a `tools()` command that calls `context.references.put(...)` |
+   | A CLI command | `tools()` returns `{'load': Tool(help, add_arguments, run)}`: `agents tool <agent> load ...` |
+   | Say what is missing | `readiness()` returns `'ok'` or a short reason, shown in `/health/ready` |
+   | Rules for list searches | `lookups.screening.screen_outcome()`: a name alone is never a `match` |
 
    The registry checks the definition at start (name, key prefix, input kind, data model,
    sections), and the worker checks every record's shape before it is saved.

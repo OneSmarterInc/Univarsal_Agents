@@ -1,0 +1,114 @@
+# Lookup agents: NPPES, OIG and SAM
+
+These agents take JSON instead of files and look a person up in an outside source.
+They call no model. Each answer says how each fact is known (`details.method`), and
+a list search (`details.shape: screens`) never says "clear".
+
+| Agent | Source | Answers | Needs |
+|---|---|---|---|
+| `nppes` | CMS NPI registry (live API) | The NPI's status, type, issue date, name; what the provider typed in (credential, taxonomy, licence numbers) | Nothing |
+| `oig` | HHS-OIG exclusion list (LEIE, a monthly CSV) | `no_match`, `possible_match` or `match` against US federal healthcare exclusions | The list, loaded by an operator |
+| `sam` | SAM.gov exclusions (live API) | The same three outcomes against US federal contracting exclusions | A SAM.gov API key |
+
+The project decides what an answer means for its person: the agents never compare a
+name with a profile, and a `possible_match` always needs a person to check it.
+
+## Switch them on
+
+```
+AGENTS_ENABLED_AGENTS=cv,linkedin,nppes,oig,sam
+```
+
+Give keys to the projects that need them (`agents create-key --project kormic --agent oig`).
+Run them on their own worker so they never wait behind CV jobs (they take seconds; a CV
+takes minutes):
+
+```
+agents worker --agents cv,linkedin
+agents worker --agents nppes,oig,sam
+```
+
+`GET /health/ready` shows each agent's state under `agents`, for example
+`"sam": "not configured: AGENTS_SAM_API_KEY"`. One agent not being ready never makes the
+whole service "not ready".
+
+## NPPES
+
+No setup. Optional settings: `AGENTS_NPPES_TIMEOUT_SECONDS` (15),
+`AGENTS_NPPES_CACHE_HOURS` (24; the same NPI is asked once a day).
+
+```
+agents try --agent nppes --key <key> --data '{"npi": "1234567893"}'
+```
+
+A number without ten digits or a matching check digit is refused at once (422) and
+never sent to CMS. "No such NPI" comes back `done` with an `npi` record whose
+`found` is `false`. Licence numbers come back as `claimed_registration` records,
+`self_attested`: CMS does not check them, and an active NPI is not an active licence.
+
+## OIG
+
+OIG publishes the full list as `UPDATED.csv` once a month at
+https://oig.hhs.gov/exclusions/exclusions_list.asp. Load it on any machine that uses the
+service's database and storage:
+
+```
+agents tool oig load --file UPDATED.csv --as-of 2026-10-01
+agents tool oig status
+```
+
+`--as-of` is the date OIG published the file (shown on that page), not today. The file is
+checked (it must have the LEIE columns), stored once and used by every worker; each worker
+reads it on its next OIG job (about 4 s and 130 MB for 84,000 rows; then about 50 ms per
+screen). Until a list is loaded, OIG jobs fail with `not_configured`.
+
+Load the new list every month. A list older than `AGENTS_OIG_MAX_AGE_DAYS` (45) still
+screens, but every answer warns, and `/health/ready` shows its age.
+
+```
+agents try --agent oig --key <key> --data '{"full_name": "Amara Okafor", "date_of_birth": "1984-02-11"}'
+```
+
+Send what you have: `full_name`, `previous_names` (an exclusion is listed under the
+name held at the time), `date_of_birth`, `npi`. A name alone can only reach
+`possible_match`; a matching date of birth or NPI makes it a `match`; a different date
+of birth rules a record out.
+
+## SAM
+
+Get a key: sam.gov, Account Details, Public API Key. A personal key allows only
+**10 calls a day**; production needs a System Account key with a higher limit.
+
+```
+AGENTS_SAM_API_KEY=<key>
+AGENTS_SAM_DAILY_LIMIT=10          # shared by every worker; each page of 50 is one call
+AGENTS_SAM_CACHE_HOURS=24          # the same name is asked once a day
+AGENTS_SAM_MAX_PAGES=4             # more matches than 4 x 50 is source_incomplete
+AGENTS_SAM_MAPPING_VERIFIED=false  # set true after checking one live answer
+```
+
+The key is sent only to SAM.gov. It is never logged or stored in a result.
+
+**Before relying on SAM:** the field mapping comes from GSA's published sample. Make
+one live call with a name from https://sam.gov/search/?index=ex, check the hit's name,
+agency and dates in the result, then set `AGENTS_SAM_MAPPING_VERIFIED=true`. Until then
+every answer says the mapping is unchecked.
+
+SAM fails closed: an answer it cannot read safely, more matches than it can read, a
+refused key or a used-up daily limit end the job with an error code, never `no_match`.
+
+## Job errors of lookup agents
+
+| code | Means | Retry? |
+|---|---|---|
+| `source_unavailable` | The source did not answer (the service already tried twice) | Later |
+| `daily_limit_reached` | Today's SAM.gov limit is used up | Tomorrow |
+| `not_configured` | Key missing or refused, or no OIG list loaded | After setup |
+| `source_rejected` | The source refused the request | No |
+| `source_unreadable` | The answer could not be read safely; nothing was checked | No: tell the service owner |
+| `source_incomplete` | More matches than can be checked; nothing was checked | No |
+
+## Outbound access (AWS)
+
+Workers that run lookup agents need HTTPS out to `npiregistry.cms.hhs.gov` (NPPES) and
+`api.sam.gov` (SAM). OIG makes no outside calls.
