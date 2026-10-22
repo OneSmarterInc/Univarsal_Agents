@@ -96,6 +96,7 @@ def test_an_npi_hit_stands_on_its_own_and_says_so():
 
 def test_the_blank_npi_in_the_file_matches_nobody():
     assert row_to_exclusion({'LASTNAME': 'X', 'FIRSTNAME': 'Y', 'NPI': '0000000000'}).npi == ''
+    assert row_to_exclusion({'LASTNAME': 'X', 'FIRSTNAME': 'Y', 'NPI': '0'}).npi == ''  # the real file's form
     details, _ = run([excluded(last_name='Nobody', first_name='Relevant')], 'Amara Okafor', npi='0000000000')
     assert details['outcome'] == 'no_match'
 
@@ -312,3 +313,11 @@ def test_reloading_the_same_file_with_a_corrected_date_is_used(oig_services):
     result = services.jobs.get(principal, job['id'])['result']
     assert result['records'][0]['details']['source_as_of'] == '2026-10-01'
     assert not any('days old' in w for w in result['warnings'])
+
+
+def test_a_firm_matches_only_on_the_whole_name():
+    firm = Exclusion(business_name='BRIAN H JENKINS, D D S, P A', exclusion_type='1128b4')
+    assert run([firm], 'Brian Aalbers')[0]['outcome'] == 'no_match'  # sharing "Brian" is not enough
+    assert run([firm], 'Brian Jenkins')[0]['outcome'] == 'possible_match'  # his practice
+    clinic = Exclusion(business_name='Sunrise Home Health Inc', exclusion_type='1128a1')
+    assert run([clinic], 'Sunrise Home')[0]['outcome'] == 'possible_match'

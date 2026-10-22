@@ -110,8 +110,8 @@ def row_to_exclusion(row):
         business_name=get('BUSNAME'),
         general=get('GENERAL'),
         specialty=get('SPECIALTY'),
-        # OIG writes ten zeroes for "no NPI"; left alone it would match most of the file.
-        npi='' if npi in ('', '0000000000') else npi,
+        # OIG writes 0 (or ten zeroes) for "no NPI"; only ten digits are an NPI.
+        npi=npi if len(npi) == 10 and npi != '0000000000' else '',
         date_of_birth=leie_date(get('DOB')),
         state=get('STATE'),
         exclusion_type=get('EXCLTYPE'),
@@ -162,12 +162,21 @@ def find(records, aliases, birth_date, npi):
     return found
 
 
+# Words that say what kind of firm it is, not whose.
+FIRM_WORDS = {
+    'inc', 'llc', 'ltd', 'co', 'corp', 'corporation', 'company', 'pc', 'pa', 'pllc', 'llp', 'lp', 'md', 'dds',
+    'dmd', 'do', 'the', 'of', 'and', 'services', 'service', 'group', 'center', 'clinic', 'medical', 'health',
+}  # fmt: skip
+
+
 class Wanted:
     """The names searched for, as words, initials given on their own, and first letters."""
 
     def __init__(self, aliases):
         tokens = [t for alias in aliases for t in _tokens(alias)]
         self.words = {t for t in tokens if len(t) > 1}
+        # Each name on its own, for firm names (see _name_matches).
+        self.names = [w for w in ({t for t in _tokens(alias) if len(t) > 1} for alias in aliases) if w]
         self.initials_given = {t for t in tokens if len(t) == 1}
         self.first_letters = {t[0] for t in tokens}
 
@@ -184,7 +193,11 @@ def _name_matches(record, wanted):
     listed first name starting with it.
     """
     if record.business_name:
-        return bool(record.business_words & wanted.words)
+        # A firm matches when it carries the whole name ("BRIAN JENKINS DDS PA" for Brian
+        # Jenkins), or the name carries the whole firm name. One shared word is not enough:
+        # it made every "Brian" a possible match for "BRIAN H JENKINS, D D S, P A".
+        core = record.business_words - FIRM_WORDS
+        return any(name <= record.business_words or (core and core <= name) for name in wanted.names)
     if not record.last_words or not record.last_words & wanted.words:
         return False
     if record.first_words:
