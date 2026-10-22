@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from agents_service.agents.base import Agent, AgentResult, JobFailed
+from agents_service.agents.base import Agent, AgentResult, JobFailed, Note
 from agents_service.agents.nppes.record import (
     check_digit_ok,
     first_record,
@@ -85,14 +85,19 @@ class NppesAgent(Agent):
         cached = job.cache.get(question) if config.cache_hours else None
         if cached is None:
             job.check_cancelled()
-            cached = {'body': ask_cms(npi, config), 'retrieved_at': datetime.now(UTC).isoformat()}
+            cached = {
+                'body': ask_cms(
+                    npi, config, ipv4=getattr(getattr(job, 'settings', None), 'outbound_ipv4', True)
+                ),
+                'retrieved_at': datetime.now(UTC).isoformat(),
+            }
             if config.cache_hours:
                 job.cache.put(question, cached, config.cache_hours * 3600)
         records, warnings = read_record(npi, cached['body'], cached['retrieved_at'])
         return AgentResult(records=records, warnings=warnings)
 
 
-def ask_cms(npi, config, transport=None):
+def ask_cms(npi, config, transport=None, ipv4=True):
     try:
         body = get_json(
             config.api_url,
@@ -100,6 +105,7 @@ def ask_cms(npi, config, transport=None):
             seconds=config.timeout_seconds,
             source='NPPES',
             transport=transport,
+            ipv4=ipv4,
         )
     except SourceError as exc:
         # Down, slow or busy: worth one more try. Anything else: CMS refused the question.
@@ -128,7 +134,9 @@ def read_record(npi, body, retrieved_at):
     if record is None:
         # CMS was asked and has no such NPI: a finding, not a failure.
         add('npi', {'npi': npi, 'found': False}, 'primary_source', value=f'{npi} (not found)')
-        warnings.append('The NPI registry has no record of this number.')
+        warnings.append(
+            Note('The NPI registry has no record of this number.', 'npi_not_found', section='npi')
+        )
         return records, warnings
 
     basic = record.get('basic') or {}
@@ -183,15 +191,28 @@ def read_record(npi, body, retrieved_at):
         )
 
     if kind == 'organisation':
-        warnings.append('This NPI belongs to an organisation, not to a person.')
+        warnings.append(
+            Note(
+                'This NPI belongs to an organisation, not to a person.',
+                'organisation_npi',
+                section='npi_type',
+            )
+        )
     if status != 'active':
         when = clean(basic.get('deactivation_date'))
-        warnings.append(f'CMS records this NPI as deactivated{f" on {when}" if when else ""}.')
+        warnings.append(
+            Note(
+                f'CMS records this NPI as deactivated{f" on {when}" if when else ""}.',
+                'npi_deactivated',
+                section='npi_status',
+            )
+        )
     if rows:
         warnings.append(
             f'This record lists {len(rows)} licence number{"s" if len(rows) > 1 else ""}, typed in by the provider. '
             'CMS does not check them; none has been confirmed with a state board.'
         )
+        warnings[-1] = Note(warnings[-1], 'unchecked_licences', section='claimed_registration')
     return records, warnings
 
 

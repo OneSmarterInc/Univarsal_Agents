@@ -206,6 +206,9 @@ def test_oig_needs_a_loaded_list_then_screens_through_the_service(
     assert record['section'] == 'oig_exclusion' and record['value'] == 'possible_match'
     assert record['sources'][0]['retrieved_at'] == '2026-10-01'
     assert record['details']['hits'][0]['reason'] == 'Their licence was revoked, suspended, or surrendered'
+    codes = [n['code'] for n in done['result']['notices']]
+    assert 'check_possible_match' in codes and 'excluded' not in codes
+    assert all(isinstance(text, str) for text in done['result']['warnings'])
 
 
 def test_a_new_list_replaces_the_old_one_in_every_worker(oig_services):
@@ -337,3 +340,13 @@ def test_a_one_letter_last_name_is_found():
     assert details['outcome'] == 'possible_match'
     details, _ = run([excluded(last_name='I', first_name='CHEA')], full_name='Chea Lim')
     assert details['outcome'] == 'no_match'
+
+
+def test_oig_notices_have_their_own_codes():
+    from agents_service.agents.records import notice_for
+
+    _, _ = run(full_name='Amara Okafor')
+    record, notes = screen([excluded()], ['Amara Okafor'], None, '', AUGUST)
+    assert [notice_for(n)['code'] for n in notes] == ['listed_record', 'check_possible_match']
+    record, notes = screen([excluded()], ['Zorvan Quillatree'], None, '', AUGUST)
+    assert [notice_for(n)['code'] for n in notes] == ['not_a_clearance', 'name_only_search']

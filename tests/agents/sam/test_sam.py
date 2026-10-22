@@ -92,7 +92,7 @@ def test_a_name_hit_is_only_a_possible_match_and_an_npi_can_make_a_match():
 def test_firms_samples_and_dates_are_read():
     assert run(page(FIRM), full_name='Supreme Fuels')[0]['outcome'] == 'possible_match'
     details, notes = run(page(PERSON))
-    assert '03-09-2021' in notes and 'HEALTH AND HUMAN SERVICES' in notes
+    assert '2021-03-09' in notes and 'HEALTH AND HUMAN SERVICES' in notes
     assert details['hits'][0]['state'] == 'CA'
 
 
@@ -456,3 +456,48 @@ def test_a_name_of_titles_only_is_refused_and_an_empty_limit_is_no_limit():
         with pytest.raises(ValueError):
             SamInput(**bad)
     assert SamSettings(api_key=KEY, project_daily_limit='').project_daily_limit is None
+
+
+def test_dates_are_iso_and_an_end_in_2101_means_no_end_date():
+    from agents_service.agents.sam.response import sam_date
+
+    person = json.loads(json.dumps(PERSON))
+    person['exclusionActions']['listOfActions'][0].update(terminationDate='01-04-2101')
+    record = read_page(page(person))[0][0]
+    assert (record.active_from, record.active_to) == ('2021-03-09', 'indefinite')
+    assert read_page(page(PERSON))[0][0].active_to == 'indefinite'  # terminationType 'Indefinite'
+    assert sam_date('05-31-2027', end=True) == '2027-05-31'
+    assert sam_date('soon') == 'soon'
+    _, notes = run(page(person))
+    assert 'since 2021-03-09 (no end date)' in notes
+
+
+def test_lookup_notices_have_their_own_codes():
+    from agents_service.agents.records import notice_for
+    from agents_service.agents.sam.agent import _warnings
+
+    found = read_page(page(PERSON))[0]
+    clean = [notice_for(n) for n in _warnings('no_match', [], '2026-10-22', ['full_name'], False)]
+    assert [n['code'] for n in clean] == ['mapping_unchecked', 'not_a_clearance']
+    hit = [notice_for(n) for n in _warnings('possible_match', found, '2026-10-22', ['full_name'], True)]
+    assert [n['code'] for n in hit] == ['listed_record', 'check_possible_match']
+    assert hit[-1]['level'] == 'action' and hit[-1]['section'] == 'sam_exclusion'
+    assert all(n['code'] != 'excluded' for n in clean + hit)
+
+
+def test_outside_calls_go_over_ipv4_unless_switched_off(monkeypatch):
+    from agents_service.lookups import http
+
+    made = []
+
+    class Transport(httpx.MockTransport):
+        def __init__(self, **kw):
+            made.append(kw)
+            super().__init__(lambda request: httpx.Response(200, json={}))
+
+    monkeypatch.setattr(http.httpx, 'HTTPTransport', Transport)
+    http.get_json('https://source.example/x')
+    assert made == [{'local_address': '0.0.0.0'}]  # noqa: S104
+    with pytest.raises(http.SourceError):
+        http.get_json('https://source.invalid/x', ipv4=False, seconds=2)
+    assert len(made) == 1  # the IPv4 transport was not used

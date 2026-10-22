@@ -98,6 +98,8 @@ class Settings(BaseSettings):
     queue_expiry_seconds: int = Field(default=1800, ge=60)
     result_retention_seconds: int = Field(default=7 * 86400, ge=3600)
     poll_seconds: float = Field(default=2.0, gt=0)
+    # Outside calls (lookup agents) over IPv4. Set false only on an IPv6-only network.
+    outbound_ipv4: bool = True
 
     @field_validator('enabled_agents', mode='before')
     @classmethod

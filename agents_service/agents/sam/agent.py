@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-from agents_service.agents.base import Agent, AgentResult, JobFailed
+from agents_service.agents.base import Agent, AgentResult, JobFailed, Note
 from agents_service.agents.records import data_record
 from agents_service.agents.sam.response import (
     PAGE_SIZE,
@@ -75,7 +75,7 @@ class SamInput(BaseModel):
 class SamSettings(BaseModel):
     api_key: SecretStr
     api_url: str = 'https://api.sam.gov/entity-information/v4/exclusions'
-    timeout_seconds: float = Field(default=15, gt=0, le=120)
+    timeout_seconds: float = Field(default=60, gt=0, le=120)  # SAM.gov's search is slow
     daily_limit: int = Field(default=10, ge=1)
     cache_hours: float = Field(default=24, ge=0, le=24 * 7)
     # Pages of 10 read per name; every page is one call against the daily limit.
@@ -107,7 +107,7 @@ class SamAgent(Agent):
     input_kind = 'data'
     data_model = SamInput
     sections = ('sam_exclusion',)
-    reader_version = 'sam/1'
+    reader_version = 'sam/2'
     uses_model = False
     empty_is_answer = True
     settings_model = SamSettings
@@ -164,7 +164,15 @@ def search(job, alias, config, transport=None):
         if not job.use_quota('search', config.daily_limit):
             raise JobFailed('daily_limit_reached')
         try:
-            records, total = read_page(_ask(terms, page, config, transport))
+            records, total = read_page(
+                _ask(
+                    terms,
+                    page,
+                    config,
+                    transport,
+                    ipv4=getattr(getattr(job, 'settings', None), 'outbound_ipv4', True),
+                )
+            )
         except Unreadable:
             raise JobFailed('source_unreadable') from None
         found.extend(records)
@@ -190,7 +198,7 @@ def search(job, alias, config, transport=None):
     return found, fetched_at
 
 
-def _ask(alias, page, config, transport):
+def _ask(alias, page, config, transport, ipv4=True):
     try:
         return get_json(
             config.api_url,
@@ -203,6 +211,8 @@ def _ask(alias, page, config, transport):
             seconds=config.timeout_seconds,
             source='SAM.gov',
             transport=transport,
+            ipv4=ipv4,
+            deadline=2 * config.timeout_seconds,
         )
     except SourceError as exc:
         if exc.kind == 'unavailable':
@@ -252,36 +262,72 @@ def screen(candidates, aliases, npi, fetched_at, mapping_verified):
 
 
 def _warnings(outcome, hits, as_of, searched, mapping_verified):
+    section = 'sam_exclusion'
     notes = []
     if not mapping_verified:
         notes.append(
-            'The SAM.gov field mapping has not yet been checked against a live answer on this service.'
+            Note(
+                'The SAM.gov field mapping has not yet been checked against a live answer on this service.',
+                'mapping_unchecked',
+                section=section,
+            )
         )
     if outcome == 'no_match':
         notes.append(
-            f'No matching record in the SAM.gov exclusion list, checked {as_of} on {", ".join(searched)}. '
-            'This is not a clearance: it covers federal contracting exclusions and nothing else.'
+            Note(
+                f'No matching record in the SAM.gov exclusion list, checked {as_of} on {", ".join(searched)}. '
+                'This is not a clearance: it covers federal contracting exclusions and nothing else.',
+                'not_a_clearance',
+                section=section,
+            )
         )
         return notes
     for hit in hits[:5]:
         where = f', {hit.state}' if hit.state else ''
         agency = f' by {hit.agency}' if hit.agency else ''
         since = f' since {hit.active_from}' if hit.active_from else ''
+        until = (
+            ''
+            if not hit.active_to
+            else ' (no end date)'
+            if hit.active_to == 'indefinite'
+            else f' until {hit.active_to}'
+        )
         notes.append(
-            f'{hit.name}{where}: excluded{agency}{since}. {hit.exclusion_type or "Exclusion type not stated"}.'
+            Note(
+                f'{hit.name}{where}: excluded{agency}{since}{until}. {hit.exclusion_type or "Exclusion type not stated"}.',
+                'listed_record',
+                section=section,
+            )
         )
     if len(hits) > 5:
-        notes.append(f'{len(hits) - 5} further matching records are not listed here.')
+        notes.append(
+            Note(
+                f'{len(hits) - 5} further matching records are not listed here.',
+                'more_records',
+                section=section,
+            )
+        )
     if outcome == 'possible_match':
         notes.append(
-            'This is a name match and nothing more. SAM.gov publishes no date of birth, so a person must check it '
-            'against the full entry. It is not a finding against them.'
+            Note(
+                'This is a name match and nothing more. SAM.gov publishes no date of birth, so a person must check it '
+                'against the full entry. It is not a finding against them.',
+                'check_possible_match',
+                level='action',
+                section=section,
+            )
         )
     else:
         notes.append(
-            'Identity was corroborated on more than a name. A person must still confirm it before acting.'
+            Note(
+                'Identity was corroborated on more than a name. A person must still confirm it before acting.',
+                'confirm_match',
+                level='action',
+                section=section,
+            )
         )
-    return notes
+    return notes  # fmt: skip
 
 
 AGENT = SamAgent()

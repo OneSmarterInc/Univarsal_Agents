@@ -138,8 +138,15 @@ so no user request waits for minutes.
   one fits (for example, compare with your user's profile).
 - **files:** per file, `complete`, `skipped` (duplicate screenshot) or `failed`
   with a safe `error` message.
-- **notices:** `level: action` means the user should choose between alternatives;
-  `level: info` explains something left out.
+- **notices:** `level: action` means a person must act (choose between alternatives, or
+  check a possible match); `level: info` only explains. Read `code`, not `text`:
+  - CV and LinkedIn: `choose_alternative`, `owner_names`, `excluded` (an item was left out
+    of the result).
+  - Lookup agents: `not_a_clearance` (nothing found; this is not a clearance),
+    `name_only_search`, `listed_record` (one listed record), `more_records`, `waiver`,
+    `check_possible_match` and `confirm_match` (action), `mapping_unchecked` (SAM),
+    `list_out_of_date` (OIG), `npi_not_found`, `organisation_npi`, `npi_deactivated`,
+    `unchecked_licences` (NPPES). `excluded` never appears on a lookup result.
 - **reader_version / model:** which reader and model produced this result.
 - **Lookup agents:** each source is `{"source": "<public address>", "retrieved_at": "<when>",
   "evidence": "..."}` instead of a file. A lookup that finds nothing ends `done` with a record

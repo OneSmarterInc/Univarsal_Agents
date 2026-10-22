@@ -205,6 +205,8 @@ ALTERNATIVES = re.compile(r'^Multiple (.+) values were found\.')
 
 def notice_for(text):
     """Tag a warning: 'action' needs a choice by the user, 'info' only explains."""
+    if getattr(text, 'code', None):
+        return {'level': text.level, 'code': text.code, 'section': text.section, 'text': str(text)}
     match = ALTERNATIVES.match(text)
     if match:
         return {

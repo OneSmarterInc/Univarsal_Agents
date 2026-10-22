@@ -36,15 +36,25 @@ class SourceError(Exception):
         self.kind, self.source, self.status = kind, source, status
 
 
-def get_json(url, *, params=None, headers=None, seconds=15, source='source', transport=None):
-    """GET a JSON answer. Params (which may hold a key) and the answer are never logged."""
+def get_json(
+    url, *, params=None, headers=None, seconds=15, source='source', transport=None, ipv4=True, deadline=120
+):
+    """GET a JSON answer. Params (which may hold a key) and the answer are never logged.
+
+    `seconds` limits each step (connect, each read); `deadline` the whole answer, so a
+    source that sends a byte at a time cannot hold a worker. `ipv4` connects over IPv4:
+    some networks publish IPv6 addresses they cannot reach, and every call then waits
+    for IPv6 to time out first (65 s instead of 2 s seen on a laptop).
+    """
     where = urlsplit(url)
     shown = f'{where.scheme}://{where.netloc}{where.path}'
     if where.scheme != 'https':
         raise ValueError('Outside sources are called over HTTPS only.')
     if where.query:
         raise ValueError('Give query values in params, so secret ones are never logged.')
-    deadline = time.monotonic() + 2 * seconds
+    deadline = time.monotonic() + max(deadline, seconds)
+    if transport is None and ipv4:
+        transport = httpx.HTTPTransport(local_address='0.0.0.0')  # noqa: S104 - the local side of an outgoing call, IPv4
     try:
         with httpx.Client(
             timeout=seconds, trust_env=False, follow_redirects=False, transport=transport

@@ -176,7 +176,7 @@ def _run_agent(services, job, renewer):
     result = {
         'records': outcome.records,
         'files': outcome.files,
-        'warnings': outcome.warnings,
+        'warnings': [str(text) for text in outcome.warnings],
         'notices': [notice_for(text) for text in outcome.warnings],
         'reader_version': agent.reader_version,
         'model': {'provider': model['provider'], 'name': model['model']} if model else None,

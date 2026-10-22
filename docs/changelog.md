@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.3 — fixes from the first live SAM run (October 2026)
+
+- **Notices of lookup agents have their own codes** (`not_a_clearance`, `listed_record`,
+  `check_possible_match`, `mapping_unchecked`, ...). Before, every lookup notice had the
+  CV code `excluded`, so a clean SAM screen could read as "excluded". Possible matches are
+  `level: action`. Agents give codes with `Note(text, code, level, section)`.
+- **Outside calls over IPv4** (`AGENTS_OUTBOUND_IPV4=true`): on an office network every
+  SAM call waited 65 s for IPv6 to fail; over IPv4 it takes about 2 s.
+- **SAM (reader sam/2):** timeout 60 s by default (SAM.gov's search is slow) and the whole
+  answer may take twice that; dates as `YYYY-MM-DD`, and an end date in 2101 is `indefinite`.
+- **All outside calls:** the 1.2.2 overall limit is now at least 120 s (it was twice the
+  timeout, 30 s, and cut off slow SAM.gov answers).
+
 ## 1.2.2 — fixes from the review of 1.2.1 (October 2026)
 
 - **CV PDF order:** the 1.2.1 reorder is now used only when a page stores its text out of

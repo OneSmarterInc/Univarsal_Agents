@@ -40,7 +40,7 @@ def parse_date(value):
     if isinstance(value, date):
         return value
     text = str(value or '').strip()
-    for form in ('%Y-%m-%d', '%Y%m%d', '%m/%d/%Y'):
+    for form in ('%Y-%m-%d', '%Y%m%d', '%m/%d/%Y', '%m-%d-%Y'):
         try:
             return datetime.strptime(text[:10] if form == '%Y-%m-%d' else text, form).date()
         except ValueError:

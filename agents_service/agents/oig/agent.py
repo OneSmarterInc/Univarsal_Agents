@@ -28,7 +28,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from agents_service.agents.base import Agent, AgentResult, JobFailed, Tool
+from agents_service.agents.base import Agent, AgentResult, JobFailed, Note, Tool
 from agents_service.agents.oig.leie import corroborated_on, find, read_csv
 from agents_service.agents.records import data_record
 from agents_service.lookups.screening import screen_outcome
@@ -108,9 +108,10 @@ class OigAgent(Agent):
         record, warnings = screen(records, aliases, birth_date, data.get('npi') or '', info['as_of'])
         age = (datetime.now(UTC).date() - date.fromisoformat(info['as_of'])).days
         if age > job.agent_settings.max_age_days:
-            warnings.append(
-                f'The exclusion list is {age} days old (published {info["as_of"]}). Load the latest one.'
-            )
+            warnings.append(Note(
+                f'The exclusion list is {age} days old (published {info["as_of"]}). Load the latest one.',
+                'list_out_of_date', section='oig_exclusion',
+            ))  # fmt: skip
         return AgentResult(records=[record], warnings=warnings)
 
     def tools(self):
@@ -179,15 +180,24 @@ def screen(records, aliases, birth_date, npi, as_of):
 
 
 def _warnings(outcome, hits, as_of, searched):
+    section = 'oig_exclusion'
     if outcome == 'no_match':
         notes = [
-            f'No matching record in the OIG exclusion list published {as_of}, searched on {", ".join(searched)}. '
-            'This is not a clearance: it means this list, on that date, did not name them.'
+            Note(
+                f'No matching record in the OIG exclusion list published {as_of}, searched on {", ".join(searched)}. '
+                'This is not a clearance: it means this list, on that date, did not name them.',
+                'not_a_clearance',
+                section=section,
+            )
         ]
         if 'date_of_birth' not in searched and 'npi' not in searched:
             notes.append(
-                'Only a name was available to search on, so this result is weak in both directions. '
-                'A date of birth or an NPI would make it worth relying on.'
+                Note(
+                    'Only a name was available to search on, so this result is weak in both directions. '
+                    'A date of birth or an NPI would make it worth relying on.',
+                    'name_only_search',
+                    section=section,
+                )
             )
         return notes
     notes = []
@@ -195,22 +205,50 @@ def _warnings(outcome, hits, as_of, searched):
         record = hit.record
         since = record.excluded_on.isoformat() if record.excluded_on else 'an unrecorded date'
         where = f', {record.state}' if record.state else ''
-        notes.append(f'{record.display_name()}{where}: excluded since {since}. {record.reason()}.')
+        notes.append(
+            Note(
+                f'{record.display_name()}{where}: excluded since {since}. {record.reason()}.',
+                'listed_record',
+                section=section,
+            )
+        )
         if record.waiver_state:
-            notes.append(f'A waiver is recorded for {record.waiver_state}, which lets that state use them.')
+            notes.append(
+                Note(
+                    f'A waiver is recorded for {record.waiver_state}, which lets that state use them.',
+                    'waiver',
+                    section=section,
+                )
+            )
     if len(hits) > 5:
-        notes.append(f'{len(hits) - 5} further matching records are not listed here.')
+        notes.append(
+            Note(
+                f'{len(hits) - 5} further matching records are not listed here.',
+                'more_records',
+                section=section,
+            )
+        )
     if outcome == 'possible_match':
         notes.append(
-            'This is a name match and nothing more. OIG requires an identity check before a name is treated '
-            'as the person, and the file has no SSN. A person must confirm or clear it; it is not a finding '
-            'against them.'
+            Note(
+                'This is a name match and nothing more. OIG requires an identity check before a name is treated '
+                'as the person, and the file has no SSN. A person must confirm or clear it; it is not a finding '
+                'against them.',
+                'check_possible_match',
+                level='action',
+                section=section,
+            )
         )
     else:
         notes.append(
-            'Identity was corroborated on more than a name. A person must still confirm it before acting.'
+            Note(
+                'Identity was corroborated on more than a name. A person must still confirm it before acting.',
+                'confirm_match',
+                level='action',
+                section=section,
+            )
         )
-    return notes
+    return notes  # fmt: skip
 
 
 def _load_arguments(parser: argparse.ArgumentParser):

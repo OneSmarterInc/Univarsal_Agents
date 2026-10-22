@@ -98,11 +98,14 @@ AGENTS_SAM_API_KEY=<key>
 AGENTS_SAM_DAILY_LIMIT=10          # shared by every worker; each page of 10 is one call
 AGENTS_SAM_PROJECT_DAILY_LIMIT=    # optional: calls one project may use per day
 AGENTS_SAM_CACHE_HOURS=24          # the same name is asked once a day
+AGENTS_SAM_TIMEOUT_SECONDS=60      # SAM.gov's search often takes 20-40 s
 AGENTS_SAM_MAX_PAGES=5             # more matches than 5 x 10 is source_incomplete
 AGENTS_SAM_MAPPING_VERIFIED=false  # set true after checking one live answer
 ```
 
-The key is sent only to SAM.gov. It is never logged or stored in a result.
+The key is sent only to SAM.gov. It is never logged or stored in a result. Dates come
+back as `YYYY-MM-DD`; an end date of `indefinite` means the exclusion has no end date
+(SAM.gov writes it as a date in 2101).
 
 SAM.gov joins the words of a name search with AND, so only the first and last name
 words are sent ("Dr Jane Marie Smith Jr" is searched as "jane smith"); every candidate
@@ -131,6 +134,11 @@ refused key or a used-up daily limit end the job with an error code, never `no_m
 | `source_incomplete` | More matches than can be checked; nothing was checked | No |
 
 ## Outbound access (AWS)
+
+Outside calls go over IPv4 (`AGENTS_OUTBOUND_IPV4=true`). Some networks publish IPv6
+addresses they cannot reach; Python then waits for IPv6 to time out on every call (a SAM
+search took 65 s instead of 2 s on an office laptop). Set it to `false` only on a network
+with IPv6 and no IPv4.
 
 Workers that run lookup agents need HTTPS out to `npiregistry.cms.hhs.gov` (NPPES) and
 `api.sam.gov` (SAM). OIG makes no outside calls.

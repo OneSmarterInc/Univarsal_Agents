@@ -9,7 +9,7 @@ thing. The field paths come from GSA's published response sample.
 from dataclasses import dataclass, field
 
 from agents_service.lookups.screening import name_words, same_person_or_firm
-from agents_service.lookups.values import clean, digits
+from agents_service.lookups.values import clean, digits, parse_date
 
 # Response paths, tried in order (dotted). The first per field is GSA's current shape.
 FIELDS = {
@@ -65,6 +65,9 @@ class SamExclusion:
     @classmethod
     def from_summary(cls, summary):
         found = cls(**{k: v or '' for k, v in summary.items()})
+        # A cached answer from before dates were given as YYYY-MM-DD.
+        found.active_from = sam_date(found.active_from)
+        found.active_to = sam_date(found.active_to, end=True)
         found.words = name_words(found.name)
         return found
 
@@ -114,13 +117,30 @@ def exclusion(entry):
         programme=get('programme'),
         agency=get('agency'),
         status=get('status', action),
-        active_from=get('active_from', action),
-        active_to=get('active_to', action) or get('termination_type', action),
+        active_from=sam_date(get('active_from', action)),
+        active_to=sam_date(get('active_to', action), end=True)
+        or _indefinite(get('termination_type', action)),
         npi=digits(get('npi')),
         state=get('state'),
     )
     found.words = name_words(found.name)
     return found
+
+
+def sam_date(value, end=False):
+    """SAM.gov writes dates as MM-DD-YYYY; give them as YYYY-MM-DD. An end date in 2100 or
+    later is SAM.gov's way of saying "no end date" and is given as "indefinite". A date
+    that cannot be read is kept as written."""
+    found = parse_date(value)
+    if found is None:
+        return value
+    if end and found.year >= 2100:
+        return 'indefinite'
+    return found.isoformat()
+
+
+def _indefinite(value):
+    return 'indefinite' if value.strip().lower() == 'indefinite' else value
 
 
 def record_name(entry):

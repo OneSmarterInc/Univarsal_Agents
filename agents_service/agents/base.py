@@ -103,6 +103,19 @@ class ToolContext:
     references: object  # core.references.References for this agent
 
 
+class Note(str):
+    """A warning with its own notice code: Note('text', 'possible_match', level='action').
+
+    It is still a plain string in `warnings`; `notices` gets its code, level and section.
+    Agents that give no code get the CV reader's codes (see records.notice_for).
+    """
+
+    def __new__(cls, text, code, level='info', section=None):
+        note = super().__new__(cls, text)
+        note.code, note.level, note.section = code, level, section
+        return note
+
+
 @dataclass
 class AgentResult:
     records: list = field(default_factory=list)
