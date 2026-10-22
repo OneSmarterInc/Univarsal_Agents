@@ -9,11 +9,14 @@ file and reload it only when the fingerprint changes.
 """
 
 import hashlib
+import logging
 import time
 from contextlib import contextmanager
 
 from agents_service.core.models import ReferenceData
 from agents_service.core.storage import reference_name
+
+log = logging.getLogger(__name__)
 
 
 class References:
@@ -50,16 +53,29 @@ class References:
             row.stored, row.sha256, row.size, row.as_of = stored, sha, len(raw), as_of
             row.loaded_at, row.details = time.time(), details or {}
         if old and old != stored:
-            self.storage.delete_reference(old)
+            try:
+                self.storage.delete_reference(old)
+            except Exception:  # noqa: BLE001 - a worker may still hold it; the new file is current
+                log.warning(
+                    'Could not delete the previous %s/%s file; it can be removed by hand', self.agent, name
+                )
         return self.info(name)
 
     @contextmanager
     def local_copy(self, name):
-        """(path, info) of the current file. Raises LookupError when none was loaded."""
+        """(path, info) of the current file, read together so they always belong to the
+        same file. Raises LookupError when none was loaded."""
         with self.db.session() as s:
             row = s.get(ReferenceData, (self.agent, name))
-            stored = row.stored if row else None
-        if stored is None:
-            raise LookupError(name)
+            if row is None:
+                raise LookupError(name)
+            stored = row.stored
+            info = {
+                'as_of': row.as_of,
+                'sha256': row.sha256,
+                'size': row.size,
+                'loaded_at': row.loaded_at,
+                'details': row.details or {},
+            }
         with self.storage.reference_copy(stored) as path:
-            yield path, self.info(name)
+            yield path, info

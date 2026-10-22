@@ -11,6 +11,7 @@ import json
 import time
 
 from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 
 from agents_service.core.models import LookupCache
 
@@ -33,16 +34,20 @@ class Cache:
 
     def put(self, question, value, seconds):
         now = time.time()
-        with self.db.session() as s:
-            row = s.get(LookupCache, self._key(question))
-            if row is None:
-                s.add(
-                    LookupCache(
-                        id=self._key(question), agent=self.agent, value=value, expires_at=now + seconds
+        try:
+            with self.db.session() as s:
+                row = s.get(LookupCache, self._key(question))
+                if row is None:
+                    s.add(
+                        LookupCache(
+                            id=self._key(question), agent=self.agent, value=value, expires_at=now + seconds
+                        )
                     )
-                )
-            else:
-                row.value, row.expires_at = value, now + seconds
+                else:
+                    row.value, row.expires_at = value, now + seconds
+        except IntegrityError:
+            # Another worker stored the same question at the same moment; its answer stands.
+            pass
 
 
 def delete_expired(s, now):

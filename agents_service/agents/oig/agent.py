@@ -37,7 +37,7 @@ from agents_service.lookups.values import digits
 SOURCE = 'https://oig.hhs.gov/exclusions/exclusions_list.asp'
 LIST = 'leie'
 # One parsed copy per worker process, replaced when a new list is loaded.
-_LOADED = {'sha256': None, 'records': None}
+_LOADED = {'sha256': None, 'records': None, 'info': None}
 
 
 class OigInput(BaseModel):
@@ -93,10 +93,11 @@ class OigAgent(Agent):
     settings_model = OigSettings
 
     def run(self, job):
-        info = job.references.info(LIST)
-        if info is None:
+        current = job.references.info(LIST)
+        if current is None:
             raise JobFailed('not_configured')
-        records = _records(job.references, info)
+        # The list and its date always come from the same file, even if a new one is loaded meanwhile.
+        records, info = _records(job.references, current)
         job.check_cancelled()
         data = job.data
         aliases = [n for n in [*data.get('previous_names', []), data.get('full_name') or ''] if n.strip()]
@@ -126,12 +127,13 @@ class OigAgent(Agent):
         return 'ok' if age <= limit else f'exclusion list is {age} days old (published {info["as_of"]})'
 
 
-def _records(references, info):
-    if _LOADED['sha256'] != info['sha256']:
-        with references.local_copy(LIST) as (path, current):
-            _LOADED['records'] = read_csv(Path(path).read_bytes())
-            _LOADED['sha256'] = current['sha256']
-    return _LOADED['records']
+def _records(references, current):
+    """(rows, info) of the list this worker holds, reloading it when a new one was loaded."""
+    if _LOADED['sha256'] != current['sha256']:
+        with references.local_copy(LIST) as (path, info):
+            rows = read_csv(Path(path).read_bytes())
+        _LOADED.update(sha256=info['sha256'], records=rows, info=info)
+    return _LOADED['records'], _LOADED['info']
 
 
 def screen(records, aliases, birth_date, npi, as_of):

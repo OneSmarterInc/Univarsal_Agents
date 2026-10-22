@@ -295,3 +295,19 @@ def test_agent_command_loads_reference_data(tmp_path, monkeypatch, capsys):
     assert References(services.db, services.storage, 'probe').info('list')['as_of'] == '2026-10-01'
     assert cli.main(['tool', 'cv', 'load']) == 2  # the CV agent has no commands
     assert json.dumps({}) == '{}'
+
+
+def test_two_workers_storing_the_same_answer_at_once_is_not_an_error(services, monkeypatch):
+    from sqlalchemy.orm import Session
+
+    cache = Cache(services.db, services.settings.key_pepper, 'probe')
+    cache.put({'name': 'Alex'}, {'hits': [1]}, 60)
+    real_get = Session.get
+    monkeypatch.setattr(
+        Session,
+        'get',
+        lambda self, model, key, **kw: None if model is LookupCache else real_get(self, model, key, **kw),
+    )
+    cache.put({'name': 'Alex'}, {'hits': [2]}, 60)  # the other worker's insert wins; no error
+    monkeypatch.undo()
+    assert cache.get({'name': 'Alex'}) == {'hits': [1]}

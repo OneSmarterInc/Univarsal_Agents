@@ -247,3 +247,22 @@ def test_an_old_list_still_screens_with_a_warning(oig_services):
     result = services.jobs.get(principal, job['id'])['result']
     assert result['records'][0]['value'] == 'no_match'
     assert any('days old' in w for w in result['warnings'])
+
+
+def test_the_list_and_its_date_come_from_the_same_file(oig_services, monkeypatch):
+    """A new list loaded between a worker's two reads never mixes the new rows with the old date."""
+    from agents_service.core.keys import Principal
+
+    services = oig_services
+    refs = References(services.db, services.storage, 'oig')
+    old = refs.put('leie', CSV.encode(), '.csv', '2026-09-01')
+    refs.put(
+        'leie', HEADER.encode() + b'SMITH,SHELLEY,,,,,,,,1128b4,20200101,00000000,\n', '.csv', '2026-10-01'
+    )
+    monkeypatch.setattr(References, 'info', lambda self, name: old)  # the worker saw the old one first
+    principal = Principal('key_k000000000000000', 'k', 'oig')
+    job = services.jobs.create(principal, 'oig', data={'full_name': 'Amara Okafor'})
+    runner.run(services, once=True)
+    monkeypatch.undo()
+    record = services.jobs.get(principal, job['id'])['result']['records'][0]
+    assert (record['value'], record['details']['source_as_of']) == ('no_match', '2026-10-01')

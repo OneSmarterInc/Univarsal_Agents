@@ -29,6 +29,7 @@ FIELDS = {
     'state': ('exclusionPrimaryAddress.stateOrProvinceCode', 'exclusionPrimaryAddress.countryCode'),
 }
 NAME_PARTS = ('prefix', 'firstName', 'middleName', 'lastName', 'suffix')
+PAGE_SIZE = 50
 
 
 class Unreadable(Exception):
@@ -68,7 +69,8 @@ class SamExclusion:
 
 
 def read_page(body):
-    """(exclusions, total) of one answer page. Raises Unreadable."""
+    """(exclusions, total) of one answer page; total is None when SAM.gov did not give
+    a readable one. Raises Unreadable."""
     if not isinstance(body, dict):
         raise Unreadable('not a JSON object')
     for key in ('error', 'errors', 'errorMessage', 'Errors'):
@@ -89,7 +91,7 @@ def read_page(body):
         # Records came back and none had a readable name: the field mapping is wrong,
         # and every record would fail the name test and read as "no match".
         raise Unreadable('records without readable names: the field mapping needs checking')
-    return parsed, count if count is not None else len(parsed)
+    return parsed, count
 
 
 def exclusion(entry):
@@ -130,19 +132,35 @@ def record_name(entry):
     return clean(pluck(entry, FIELDS['entity_name'])) or ''
 
 
-def matches(record, wanted, npi):
-    """SAM's own matching is looser than ours: what it returns are candidates only."""
+def matches(record, aliases, npi):
+    """SAM's own matching is looser than ours: what it returns are candidates only.
+
+    Each name given is compared on its own: pooling the words of a current and a
+    former name would stop "Jane Marie Smith" matching the former name "Jane Smith".
+    """
     if npi and record.npi and record.npi == npi:
         return True
     if not record.words:
         return False
-    return record.words <= wanted or wanted <= record.words
+    return any(record.words <= words or words <= record.words for words in aliases if words)
+
+
+def name_matches(record, aliases):
+    return bool(record.words) and any(record.words <= w or w <= record.words for w in aliases if w)
 
 
 def dedupe(records):
+    """One entry per distinct record. Run on hits only, after the active check, so an
+    inactive copy can never hide an active one; NPI and status are part of the key."""
     seen, out = set(), []
     for record in records:
-        key = (record.name.lower(), record.agency.lower(), record.active_from)
+        key = (
+            record.name.lower(),
+            record.agency.lower(),
+            record.active_from,
+            record.npi,
+            record.status.lower(),
+        )
         if key not in seen:
             seen.add(key)
             out.append(record)
@@ -172,6 +190,6 @@ def pluck(body, paths):
 
 def as_int(value):
     try:
-        return int(str(value).strip())
+        return int(str(value).strip().replace(',', '').replace(' ', ''))
     except (TypeError, ValueError):
         return None

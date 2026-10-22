@@ -23,13 +23,20 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from agents_service.agents.base import Agent, AgentResult, JobFailed
 from agents_service.agents.records import data_record
-from agents_service.agents.sam.response import SamExclusion, Unreadable, dedupe, matches, read_page
+from agents_service.agents.sam.response import (
+    PAGE_SIZE,
+    SamExclusion,
+    Unreadable,
+    dedupe,
+    matches,
+    name_matches,
+    read_page,
+)
 from agents_service.lookups.http import SourceError, get_json
 from agents_service.lookups.screening import name_words, screen_outcome
 from agents_service.lookups.values import digits
 
 SOURCE = 'https://sam.gov/search/?index=ex'
-PAGE_SIZE = 50
 
 
 class SamInput(BaseModel):
@@ -37,6 +44,13 @@ class SamInput(BaseModel):
     full_name: str = Field(min_length=1, max_length=200)
     previous_names: list[str] = Field(default_factory=list, max_length=5)
     npi: str | None = Field(default=None, max_length=20)
+
+    @field_validator('previous_names')
+    @classmethod
+    def short_names(cls, value):
+        if any(len(name) > 200 for name in value):
+            raise ValueError('names are at most 200 characters')
+        return [name.strip() for name in value if name.strip()]
 
     @field_validator('full_name')
     @classmethod
@@ -105,7 +119,9 @@ class SamAgent(Agent):
 
 def search(job, alias, config, transport=None):
     """(exclusions, fetched_at) for one name: from the cache, or every page from SAM.gov."""
-    question = {'name': ' '.join(sorted(name_words(alias)))}
+    # The cache key is the exact text sent (spaces and case aside), so two wordings that
+    # SAM.gov might answer differently never share an answer.
+    question = {'name': ' '.join(alias.split()).casefold()}
     cached = job.cache.get(question) if config.cache_hours else None
     if cached is not None:
         return [SamExclusion.from_summary(s) for s in cached['records']], cached['fetched_at']
@@ -118,7 +134,13 @@ def search(job, alias, config, transport=None):
         except Unreadable:
             raise JobFailed('source_unreadable') from None
         found.extend(records)
-        if len(found) >= total or not records:
+        if not records:
+            break
+        if total is None:
+            # No readable total: a full page means there may be more.
+            if len(records) < PAGE_SIZE:
+                break
+        elif len(found) >= total:
             break
         page += 1
         if page >= config.max_pages:
@@ -163,8 +185,8 @@ def _ask(alias, page, config, transport):
 
 def screen(candidates, aliases, npi, fetched_at, mapping_verified):
     """(record, warnings) from the candidates SAM.gov returned for these names."""
-    wanted = {word for alias in aliases for word in name_words(alias)}
-    hits = [c for c in dedupe(candidates) if c.is_active() and matches(c, wanted, npi)]
+    wanted = [name_words(alias) for alias in aliases]
+    hits = dedupe([c for c in candidates if c.is_active() and matches(c, wanted, npi)])
     searched = ['full_name'] + (['previous_names'] if len(aliases) > 1 else []) + (['npi'] if npi else [])
     if hits:
         # What tied each hit to the person, not what the search used.
@@ -172,7 +194,7 @@ def screen(candidates, aliases, npi, fetched_at, mapping_verified):
         for hit in hits:
             if npi and hit.npi == npi:
                 matched.add('npi')
-            if hit.words and (hit.words <= wanted or wanted <= hit.words):
+            if name_matches(hit, wanted):
                 matched.add('full_name')
         matched_on = sorted(matched)
     else:

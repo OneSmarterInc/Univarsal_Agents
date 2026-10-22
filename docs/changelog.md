@@ -5,10 +5,13 @@
 - Three lookup agents, ported from OneSmarter's kormic-agents package: **NPPES** (a US NPI
   at CMS), **OIG** (HHS-OIG exclusion list) and **SAM** (SAM.gov exclusions). Off by
   default; see [Lookup agents](lookup-agents.md).
-- Changes from the original: the agents compare no names (projects do); OIG no longer
-  says an NPI-only hit matched on the name; SAM reads every page instead of the first 50
-  and refuses a partial answer; SAM's daily limit is shared by every worker and answers
-  are cached; the OIG list is loaded once and shared by every worker.
+- Changes from the original: NPPES no longer compares the given name with the record
+  (projects decide; OIG and SAM still match names, only to search their lists); OIG no
+  longer says an NPI-only hit matched on the name; SAM reads every page instead of the
+  first 50 (also when SAM.gov gives no total) and refuses a partial answer; SAM compares
+  each name given on its own (a former name could hide a hit) and never lets an inactive
+  copy hide an active record; SAM's daily limit is shared by every worker and answers are
+  cached under the exact name sent; the OIG list is loaded once and shared by every worker.
 - Shared support for lookup agents: `lookups/http.py` (safe outside calls), `JobFailed`
   with new job error codes, agents' own settings (`AGENTS_<AGENT>_...`), a shared daily
   limit, a cache of outside answers and reference files (migration 0003),

@@ -240,17 +240,72 @@ def test_the_key_never_leaves_the_request(caplog):
     assert 'SecretStr' in repr(settings()) and KEY not in repr(settings())
 
 
-def test_a_cached_name_costs_no_call():
+def test_a_cached_name_costs_no_call_but_other_wording_is_asked_again():
     calls = []
 
     def handler(request):
-        calls.append(1)
+        calls.append(request.url.params['exclusionName'])
         return httpx.Response(200, json=page(PERSON))
 
     job = Job()
     search(job, 'Amara Okafor', settings(), sam(handler))
-    found, _ = search(job, 'okafor, AMARA', settings(), sam(handler))  # same words, other order
+    found, _ = search(job, '  amara   OKAFOR ', settings(), sam(handler))  # spaces and case only
     assert len(calls) == 1 and found[0].name == 'AMARA OKAFOR'
+    search(job, 'Okafor Amara', settings(), sam(handler))  # SAM.gov may answer this differently
+    assert len(calls) == 2
+
+
+# --- review findings: no false clearance --------------------------------------------------
+
+
+def test_a_full_page_without_a_total_reads_the_next_page():
+    other = {**PERSON, 'exclusionIdentification': {'firstName': 'TOBIAS', 'lastName': 'VANDERMEER'}}
+
+    def handler(request):
+        if request.url.params['page'] == '0':
+            return httpx.Response(200, json={'excludedEntity': [other] * 50})  # no totalRecords
+        return httpx.Response(200, json={'excludedEntity': [PERSON]})
+
+    found, _ = search(Job(), 'Amara Okafor', settings(cache_hours=0), sam(handler))
+    record, _ = screen(found, ['Amara Okafor'], '', NOW, False)
+    assert len(found) == 51 and record['details']['outcome'] == 'possible_match'
+
+
+def test_a_total_written_with_a_comma_is_read():
+    assert read_page({'totalRecords': '1,000', 'excludedEntity': [PERSON]})[1] == 1000
+
+
+def test_a_former_name_never_hides_a_record_with_a_middle_name():
+    jane = {
+        **PERSON,
+        'exclusionIdentification': {'firstName': 'JANE', 'middleName': 'MARIE', 'lastName': 'SMITH'},
+    }
+    details, _ = run(page(jane), full_name='Jane Doe', previous=['Jane Smith'])
+    assert details['outcome'] == 'possible_match'
+
+
+def test_an_inactive_copy_never_hides_an_active_one():
+    inactive = {
+        **PERSON,
+        'exclusionActions': {'listOfActions': [{'activateDate': '03-09-2021', 'recordStatus': 'Inactive'}]},
+    }
+    details, _ = run(page(inactive, PERSON))
+    assert details['outcome'] == 'possible_match'
+
+
+def test_two_records_differing_only_in_npi_are_both_kept():
+    blank = {**PERSON, 'exclusionIdentification': {**PERSON['exclusionIdentification'], 'npi': '1999999999'}}
+    with_npi = {
+        **PERSON,
+        'exclusionIdentification': {**PERSON['exclusionIdentification'], 'npi': '1104130236'},
+    }
+    details, _ = run(page(blank, with_npi), full_name='Someone Else', npi='1104130236')
+    assert details['outcome'] == 'match' and details['matched_on'] == ['npi']
+
+
+def test_a_very_long_former_name_is_refused():
+    with pytest.raises(ValueError):
+        SamInput(full_name='Amara Okafor', previous_names=['x' * 201])
 
 
 def test_the_unverified_mapping_is_said_in_every_answer():
