@@ -52,8 +52,8 @@ class Database:
         except OperationalError as exc:
             raise ServiceError('database_unavailable', 503, True, 5) from exc
 
-    def upgrade(self):
-        """Bring the schema to the latest migration."""
+    def upgrade(self, revision='head'):
+        """Bring the schema to the latest migration (or to `revision`)."""
         from alembic import command
         from alembic.config import Config
 
@@ -61,4 +61,4 @@ class Database:
         config.set_main_option('script_location', str(MIGRATIONS))
         config.set_main_option('sqlalchemy.url', self.url.replace('%', '%%'))
         config.attributes['connection_engine'] = self.engine
-        command.upgrade(config, 'head')
+        command.upgrade(config, revision)

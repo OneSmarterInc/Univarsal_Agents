@@ -44,6 +44,8 @@ class Job(Base):
     lease_owner = Column(String(80))
     lease_expires_at = Column(Float)
     created_at = Column(Float, nullable=False)
+    # When the job last joined the line: set on creation and on every retry.
+    queued_at = Column(Float, nullable=False)
     started_at = Column(Float)
     finished_at = Column(Float)
     expires_at = Column(Float, nullable=False)
@@ -53,6 +55,7 @@ class Job(Base):
         Index('ix_jobs_line', 'state', 'agent', 'created_at'),
         Index('ix_jobs_project_state', 'project', 'state'),
         Index('ix_jobs_expiry', 'expires_at'),
+        Index('ix_jobs_queue_expiry', 'state', 'queued_at'),
     )
 
 

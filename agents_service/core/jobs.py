@@ -6,6 +6,8 @@
   to the line (once; a second loss fails the job).
 * Every change is a conditional update on one row, so any number of workers on
   any number of servers can share the line safely. No file locks.
+* A job's input data (for example a name or date of birth for a lookup) is
+  deleted when the job ends; only the result is kept.
 """
 
 import hashlib
@@ -95,6 +97,7 @@ class JobLine:
                     inputs=stored,
                     attempts=0,
                     created_at=now,
+                    queued_at=now,
                     expires_at=now + self.settings.result_retention_seconds,
                 )
                 s.add(job)
@@ -151,6 +154,7 @@ class JobLine:
                 )
             s.refresh(job)
             job.result = None
+            job.options = without_data(job.options)
             record(s, 'job_cancelled', job.project, job.agent, principal.key_id, job.id)
             self.storage.delete_job(job.id)
             return self.serialize(s, job)
@@ -173,11 +177,12 @@ class JobLine:
                 projects = list(s.scalars(waiting))
                 if not projects:
                     return None
-                # Projects take turns: the one whose last job started longest ago goes first.
+                # Projects take turns: the one whose last job for these agents started
+                # longest ago goes first. Jobs for other agents run on other workers.
                 last = dict(
                     s.execute(
                         select(Job.project, func.max(Job.started_at))
-                        .where(Job.project.in_(projects))
+                        .where(Job.project.in_(projects), Job.agent.in_(agents))
                         .group_by(Job.project)
                     ).all()
                 )
@@ -222,6 +227,8 @@ class JobLine:
         now = time.time()
         with self.db.session() as s:
             job = s.get(Job, job_id)
+            if job is None:
+                return False
             changed = s.execute(
                 update(Job)
                 .where(Job.id == job_id, Job.lease_owner == worker_id, Job.state == 'running')
@@ -229,6 +236,7 @@ class JobLine:
                     state=state,
                     result=result,
                     error_code=error_code,
+                    options=without_data(job.options),
                     finished_at=now,
                     lease_owner=None,
                     lease_expires_at=None,
@@ -260,7 +268,7 @@ class JobLine:
                 s.execute(
                     update(Job)
                     .where(Job.id == job_id, Job.lease_owner == worker_id, Job.state == 'running')
-                    .values(state='queued', lease_owner=None, lease_expires_at=None)
+                    .values(state='queued', lease_owner=None, lease_expires_at=None, queued_at=time.time())
                 ).rowcount
             )
 
@@ -273,22 +281,32 @@ class JobLine:
         with self.db.session() as s:
             for job in s.scalars(
                 select(Job).where(
-                    Job.state == 'queued', Job.created_at < now - self.settings.queue_expiry_seconds
+                    Job.state == 'queued', Job.queued_at < now - self.settings.queue_expiry_seconds
                 )
             ):
                 if s.execute(
                     update(Job)
                     .where(Job.id == job.id, Job.state == 'queued')
-                    .values(state='expired', error_code='expired', finished_at=now)
+                    .values(
+                        state='expired',
+                        error_code='expired',
+                        finished_at=now,
+                        options=without_data(job.options),
+                    )
                 ).rowcount:
                     add_usage(s, now, job.project, job.agent, expired=1)
                     expired_ids.append(job.id)
             for job in s.scalars(select(Job).where(Job.state == 'running', Job.lease_expires_at < now)):
                 out_of_attempts = job.attempts >= self.settings.max_attempts
                 values = (
-                    {'state': 'failed', 'error_code': 'worker_lost', 'finished_at': now}
+                    {
+                        'state': 'failed',
+                        'error_code': 'worker_lost',
+                        'finished_at': now,
+                        'options': without_data(job.options),
+                    }
                     if out_of_attempts
-                    else {'state': 'queued'}
+                    else {'state': 'queued', 'queued_at': now}
                 )
                 if (
                     s.execute(
@@ -300,7 +318,8 @@ class JobLine:
                 ):
                     add_usage(s, now, job.project, job.agent, failed=1)
                     lost_ids.append(job.id)
-            s.execute(delete(Job).where(Job.expires_at < now))
+            # Only finished jobs are deleted: a waiting or running job is never removed under its caller.
+            s.execute(delete(Job).where(Job.expires_at < now, Job.state.in_(FINISHED)))
             s.execute(delete(RateWindow).where(RateWindow.expires_at < now))
             active = set(s.scalars(select(Job.id).where(Job.state.in_(WAITING))))
         for job_id in expired_ids + lost_ids:
@@ -406,6 +425,11 @@ JOB_ERRORS = {
     'no_records': 'No supported information was found in the files.',
     'internal_error': 'The job failed on the service side.',
 }
+
+
+def without_data(options):
+    """The job's options without its input data."""
+    return {k: v for k, v in (options or {}).items() if k != 'data'}
 
 
 def filter_fields(result, fields):

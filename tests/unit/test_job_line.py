@@ -72,20 +72,26 @@ def test_only_the_holder_can_finish_or_renew(services):
 def test_waiting_too_long_expires(services):
     (job_id,) = queue(services)
     with services.db.session() as s:
-        s.execute(update(Job).where(Job.id == job_id).values(created_at=time.time() - 3600))
+        s.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(created_at=time.time() - 3600, queued_at=time.time() - 3600)
+        )
     services.jobs.sweep()
     assert state(services, job_id) == 'expired'
     report = usage_report(services.db)['rows'][0]
     assert report['expired'] == 1
 
 
-def test_old_results_are_deleted(services):
-    (job_id,) = queue(services)
+def test_old_results_are_deleted_but_never_waiting_jobs(services):
+    finished, waiting = queue(services, n=2)
     with services.db.session() as s:
-        s.execute(update(Job).where(Job.id == job_id).values(expires_at=time.time() - 1))
+        s.execute(update(Job).where(Job.id == finished).values(state='done'))
+        s.execute(update(Job).values(expires_at=time.time() - 1))
     services.jobs.sweep()
     with services.db.session() as s:
-        assert s.get(Job, job_id) is None
+        assert s.get(Job, finished) is None
+        assert s.get(Job, waiting) is not None
 
 
 class SlowAgent:
@@ -203,7 +209,7 @@ def test_worker_keeps_running_when_saving_fails(services, monkeypatch):
 
     def flaky_finish(*args, **kwargs):
         calls.append(args[0])
-        if len(calls) <= 2:  # the save and the fallback "failed" save both fail
+        if len(calls) == 1:  # the first save fails
             from agents_service.core.errors import ServiceError
 
             raise ServiceError('database_unavailable', 503, True, 5)
@@ -218,6 +224,105 @@ def test_worker_keeps_running_when_saving_fails(services, monkeypatch):
     runner.run(services, once=True, stop=stop)
     assert state(services, first) == 'running'  # returns to the line when its borrow runs out
     assert state(services, second) == 'failed'  # no records: failed, but saved
+    assert calls == [first, second]  # a failed save is never followed by a "failed" save
+
+
+def test_a_failed_save_keeps_a_good_result_retryable(services, monkeypatch):
+    (job_id,) = queue(services)
+    record = {'id': 'r', 'section': 'name', 'value': 'A', 'details': {}, 'sources': []}
+    services.agents['cv'] = SlowAgent(lambda job: AgentResult(records=[record]))
+    real_finish, calls = services.jobs.finish, []
+
+    def save_fails_once(*args, **kwargs):
+        calls.append(args[2])
+        if len(calls) == 1:
+            from agents_service.core.errors import ServiceError
+
+            raise ServiceError('database_unavailable', 503, True, 5)
+        return real_finish(*args, **kwargs)
+
+    monkeypatch.setattr(services.jobs, 'finish', save_fails_once)
+    runner.run(services, once=True)
+    assert calls == ['done']  # never re-saved as failed
+    expire_lease(services, job_id)
+    services.jobs.sweep()
+    assert state(services, job_id) == 'queued'  # back in the line for its second try
+    runner.run(services, once=True)
+    assert state(services, job_id) == 'done'
+
+
+def test_a_retried_job_gets_a_fresh_wait(services, monkeypatch):
+    (job_id,) = queue(services)
+    with services.db.session() as s:  # it waited 28 minutes before its first try
+        s.execute(
+            update(Job)
+            .where(Job.id == job_id)
+            .values(created_at=time.time() - 1680, queued_at=time.time() - 1680)
+        )
+    monkeypatch.setattr(runner.time, 'sleep', lambda s: None)
+    services.agents['cv'] = SlowAgent(lambda job: (_ for _ in ()).throw(AIError('connection')))
+    runner.run(services, once=True)
+    with services.db.session() as s:  # and ran for 3 minutes before the model went down
+        s.execute(update(Job).where(Job.id == job_id).values(created_at=time.time() - 1860))
+    services.jobs.sweep()
+    assert state(services, job_id) == 'queued'  # not expired: its wait started again
+
+
+def test_a_lost_job_gets_a_fresh_wait(services):
+    (job_id,) = queue(services)
+    services.jobs.claim('dead', ['cv'])
+    with services.db.session() as s:
+        s.execute(update(Job).where(Job.id == job_id).values(created_at=time.time() - 3600))
+    expire_lease(services, job_id)
+    services.jobs.sweep()
+    services.jobs.sweep()
+    assert state(services, job_id) == 'queued'
+
+
+def test_fair_turns_count_only_the_workers_agents(services):
+    (a_linkedin,) = queue(services, 'a', agent='linkedin')
+    (b_done,) = queue(services, 'b')
+    now = time.time()
+    with services.db.session() as s:
+        # Project a just had a LinkedIn job start (on another worker); project b had a CV job 100 s ago.
+        s.execute(update(Job).where(Job.id == a_linkedin).values(state='running', started_at=now))
+        s.execute(update(Job).where(Job.id == b_done).values(state='done', started_at=now - 100))
+    (b_job,) = queue(services, 'b')
+    (a_job,) = queue(services, 'a')
+    # For a CV worker, project a has never had a turn, so it goes before b.
+    assert services.jobs.claim('w', ['cv']).id == a_job
+    assert services.jobs.claim('w', ['cv']).id == b_job
+
+
+def test_input_data_is_deleted_when_a_job_ends(services):
+    principal = Principal('key_a000000000000000', 'a', 'cv')
+    job = services.jobs.create(principal, 'cv', data={'full_name': 'Alex', 'date_of_birth': '1990-01-01'})
+    services.jobs.claim('w', ['cv'])
+    services.jobs.finish(job['id'], 'w', 'done', {'records': []})
+    with services.db.session() as s:
+        assert 'data' not in s.get(Job, job['id']).options
+
+
+def test_data_agents_can_notice_a_cancel(services, monkeypatch):
+    from agents_service.agents.base import JobCancelled
+
+    (job_id,) = queue(services)
+    principal = Principal('key_a000000000000000', 'a', 'cv')
+    steps = []
+
+    def lookup(job):
+        services.jobs.cancel(principal, job.job_id)
+        steps.append('first call')
+        job.check_cancelled()
+        steps.append('second call')
+        return AgentResult()
+
+    services.agents['cv'] = SlowAgent(lookup)
+    monkeypatch.setattr(runner.Renewer, 'still_held', lambda self: self.jobs.renew(self.job_id, self.worker))
+    runner.run(services, once=True)
+    assert steps == ['first call']
+    assert state(services, job_id) == 'cancelled'
+    assert JobCancelled
 
 
 def test_queue_position_follows_fair_turns(services):

@@ -7,6 +7,7 @@ anywhere else. See docs/adding-an-agent.md.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,6 +49,18 @@ class JobContext:
     options: dict
     settings: object
     model: dict | None  # provider configuration (see agents_service.ai.providers)
+    #: True once the job was cancelled (or taken over). Agents that call outside
+    #: services call it between steps and stop with JobCancelled; model requests
+    #: check it on their own.
+    cancelled: Callable[[], bool] = lambda: False
+
+    def check_cancelled(self):
+        if self.cancelled():
+            raise JobCancelled()
+
+
+class JobCancelled(Exception):
+    """The job was cancelled while it ran; nothing is saved."""
 
 
 @dataclass
@@ -74,6 +87,9 @@ class Agent(ABC):
     reader_version: str = '1'
     #: False for agents that do not call a model at all.
     uses_model: bool = True
+    #: True when "no records" is a normal answer (a lookup that found nothing),
+    #: so the job ends "done". False for readers, where it means a failure.
+    empty_is_answer: bool = False
 
     def file_rule(self, settings) -> FileRule | None:
         """The accepted files. Override when a limit comes from a setting."""

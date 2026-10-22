@@ -161,3 +161,39 @@ def test_usage_counters_survive_parallel_first_writes(services):
 
         assert s.scalar(select(Usage.jobs).where(Usage.project == 'p')) == 50
     assert usage_report is not None
+
+
+@pytest.mark.parametrize(
+    'bad',
+    [
+        {'lease_seconds': 5},
+        {'max_attempts': 0},
+        {'queue_expiry_seconds': 10},
+        {'result_retention_seconds': 600},
+        {'queue_expiry_seconds': 86400, 'result_retention_seconds': 3600},
+        {'file_seconds': 1},
+    ],
+)
+def test_job_line_settings_that_would_break_it_are_refused(tmp_path, bad):
+    with pytest.raises(ValueError):
+        make_settings(tmp_path, **bad)
+
+
+def test_existing_database_upgrades_and_keeps_its_jobs(tmp_path):
+    from sqlalchemy import text
+
+    from agents_service.services import build
+
+    services = build(make_settings(tmp_path))
+    services.db.upgrade('0001')
+    with services.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                'INSERT INTO jobs (id, project, agent, key_id, request_digest, state, options, inputs,'
+                " attempts, created_at, expires_at) VALUES ('job_old', 'p', 'cv', 'k', 'd', 'queued',"
+                " '{}', '[]', 0, 1000.0, 99999999999.0)"
+            )
+        )
+    services.db.upgrade()
+    with services.db.engine.begin() as connection:
+        assert connection.execute(text("SELECT queued_at FROM jobs WHERE id = 'job_old'")).scalar() == 1000.0

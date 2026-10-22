@@ -220,8 +220,12 @@ def notice_for(text):
     return {'level': 'info', 'code': 'excluded', 'section': None, 'text': text}
 
 
-def job_state(records, files):
-    """done, partial or failed."""
-    if not records:
+def job_state(records, files, empty_is_answer=False):
+    """done, partial or failed.
+
+    No records is a failure for a reader (nothing could be read), but a normal
+    answer for a lookup agent that sets ``empty_is_answer`` (nothing was found).
+    """
+    if not records and not empty_is_answer:
         return 'failed'
     return 'partial' if any(f['status'] == 'failed' for f in files) else 'done'

@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     tesseract_cmd: str = ''
     # Read every file in a separate, limited process (recommended).
     isolate_parsing: bool = True
-    file_seconds: int = 900
+    file_seconds: int = Field(default=900, ge=5)
     cv_chunk_chars: int = 3000
     linkedin_max_files: int = Field(default=5, ge=1, le=10)
 
@@ -73,12 +73,13 @@ class Settings(BaseSettings):
     max_waiting_per_project: int = 50
     max_waiting_total: int = 500
 
-    # The job line.
-    lease_seconds: int = 120
-    max_attempts: int = 2
-    queue_expiry_seconds: int = 1800
-    result_retention_seconds: int = 7 * 86400
-    poll_seconds: float = 2.0
+    # The job line. A worker renews its borrow every 10 seconds, so a borrow
+    # lasts at least 30; results are kept at least as long as jobs may wait.
+    lease_seconds: int = Field(default=120, ge=30)
+    max_attempts: int = Field(default=2, ge=1, le=10)
+    queue_expiry_seconds: int = Field(default=1800, ge=60)
+    result_retention_seconds: int = Field(default=7 * 86400, ge=3600)
+    poll_seconds: float = Field(default=2.0, gt=0)
 
     @field_validator('enabled_agents', mode='before')
     @classmethod
@@ -96,6 +97,10 @@ class Settings(BaseSettings):
         if not self.s3_prefix.endswith('/') or self.s3_prefix.strip('/') == '':
             # The service deletes old files under this prefix; it must be its own folder.
             raise ValueError('AGENTS_S3_PREFIX must be a folder of its own, like "uploads/".')
+        if self.result_retention_seconds <= self.queue_expiry_seconds:
+            raise ValueError(
+                'AGENTS_RESULT_RETENTION_SECONDS must be longer than AGENTS_QUEUE_EXPIRY_SECONDS.'
+            )
         return self
 
     def model_for(self, agent):

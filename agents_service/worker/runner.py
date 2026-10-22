@@ -11,17 +11,15 @@ import threading
 import time
 from contextlib import ExitStack
 
-from agents_service.agents.base import InputFile, JobContext
+from agents_service.agents.base import InputFile, JobCancelled, JobContext
 from agents_service.agents.records import job_state, notice_for
 from agents_service.ai.providers import AIError, RequestStats, job_scope, model_config
 
 log = logging.getLogger(__name__)
 SWEEP_SECONDS = 60
+# How often a running job checks the line: renews its borrow and notices a cancel.
+RENEW_SECONDS = 10
 MODEL_DOWN = ('connection', 'provider')
-
-
-class ModelUnavailable(Exception):
-    pass
 
 
 def worker_id():
@@ -51,6 +49,9 @@ class Renewer(threading.Thread):
         """Checked before every model request: False once the job was cancelled."""
         return self.held
 
+    def cancelled(self):
+        return not self.still_held()
+
     def stop(self):
         self.stop_event.set()
 
@@ -63,10 +64,38 @@ def all_files_lost_model(files):
 
 
 def run_job(services, job, worker):
+    """Run one job, then save its outcome.
+
+    Running and saving are kept apart: an agent problem saves a failed job,
+    while a problem saving (the database is down) raises to the loop, and the
+    job returns to the line when its borrow runs out.
+    """
+    renewer = Renewer(services.jobs, job.id, worker, RENEW_SECONDS)
+    renewer.start()
+    try:
+        outcome = _run_agent(services, job, renewer)
+    finally:
+        renewer.stop()
+    if outcome is None:
+        return
+    kind, value = outcome
+    if kind == 'model_down':
+        _model_down(services, job, worker)
+    elif kind == 'failed':
+        services.jobs.finish(job.id, worker, 'failed', None, value)
+    else:
+        state, result = value
+        services.jobs.finish(job.id, worker, state, result, 'no_records' if state == 'failed' else None)
+        log.info(
+            'job finished: id=%s agent=%s state=%s seconds=%.1f model_requests=%s',
+            job.id, job.agent, state, result['timing']['seconds'], result['timing']['model']['requests'],
+        )  # fmt: skip
+
+
+def _run_agent(services, job, renewer):
+    """('done', (state, result)), ('failed', error code), ('model_down', None), or None when cancelled."""
     agent = services.agents[job.agent]
     settings = services.settings
-    renewer = Renewer(services.jobs, job.id, worker, max(5, settings.lease_seconds / 3))
-    renewer.start()
     stats = RequestStats()
     started = time.monotonic()
     try:
@@ -89,43 +118,42 @@ def run_job(services, job, worker):
                 options=job.options or {},
                 settings=settings,
                 model=model,
+                cancelled=renewer.cancelled,
             )
             with job_scope(check=renewer.still_held, stats=stats):
                 outcome = agent.run(context)
-        if all_files_lost_model(outcome.files):
-            raise ModelUnavailable()
-        state = job_state(outcome.records, outcome.files)
-        result = {
-            'records': outcome.records,
-            'files': outcome.files,
-            'warnings': outcome.warnings,
-            'notices': [notice_for(text) for text in outcome.warnings],
-            'reader_version': agent.reader_version,
-            'model': {'provider': model['provider'], 'name': model['model']} if model else None,
-            'timing': {'seconds': round(time.monotonic() - started, 2), 'model': stats.summary()},
-        }
-        services.jobs.finish(job.id, worker, state, result, None if state != 'failed' else 'no_records')
-        log.info(
-            'job finished: id=%s agent=%s state=%s seconds=%.1f model_requests=%s',
-            job.id, agent.name, state, time.monotonic() - started, stats.requests,
-        )  # fmt: skip
+                context.check_cancelled()
+    except JobCancelled:
+        log.info('job stopped: id=%s (cancelled or taken over)', job.id)
+        return None
     except AIError as exc:
         if exc.reason == 'cancelled':
             # Cancelled by the project (cancel() deletes the files), or the borrow was
             # lost to another worker, which must keep its files.
             log.info('job stopped: id=%s (cancelled or taken over)', job.id)
-        elif exc.reason == 'configuration':
+            return None
+        if exc.reason == 'configuration':
             log.error('Model configuration problem (%s); job %s failed', exc.field, job.id)
-            services.jobs.finish(job.id, worker, 'failed', None, 'model_unavailable')
-        else:
-            _model_down(services, job, worker)
-    except ModelUnavailable:
-        _model_down(services, job, worker)
+            return ('failed', 'model_unavailable')
+        return ('model_down', None)
     except Exception:  # noqa: BLE001 - one job failing must not stop the worker
         log.exception('job crashed: id=%s agent=%s', job.id, job.agent)
-        services.jobs.finish(job.id, worker, 'failed', None, 'internal_error')
-    finally:
-        renewer.stop()
+        return ('failed', 'internal_error')
+    if all_files_lost_model(outcome.files):
+        return ('model_down', None)
+    state = job_state(
+        outcome.records, outcome.files, empty_is_answer=getattr(agent, 'empty_is_answer', False)
+    )
+    result = {
+        'records': outcome.records,
+        'files': outcome.files,
+        'warnings': outcome.warnings,
+        'notices': [notice_for(text) for text in outcome.warnings],
+        'reader_version': agent.reader_version,
+        'model': {'provider': model['provider'], 'name': model['model']} if model else None,
+        'timing': {'seconds': round(time.monotonic() - started, 2), 'model': stats.summary()},
+    }
+    return ('done', (state, result))
 
 
 def _model_down(services, job, worker):
