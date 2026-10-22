@@ -321,3 +321,19 @@ def test_a_firm_matches_only_on_the_whole_name():
     assert run([firm], 'Brian Jenkins')[0]['outcome'] == 'possible_match'  # his practice
     clinic = Exclusion(business_name='Sunrise Home Health Inc', exclusion_type='1128a1')
     assert run([clinic], 'Sunrise Home')[0]['outcome'] == 'possible_match'
+
+
+def test_apostrophes_and_hyphens_match_however_the_list_writes_them():
+    details, _ = run([excluded(last_name='OBRIEN', first_name='BRIAN')], full_name="Brian O'Brien")
+    assert details['outcome'] == 'possible_match'
+    details, _ = run([excluded(last_name="O'BRIEN", first_name='BRIAN')], full_name='Brian OBrien')
+    assert details['outcome'] == 'possible_match'
+    details, _ = run([excluded(last_name='ABADSANTOS', first_name='LUIS')], full_name='Luis Abad-Santos')
+    assert details['outcome'] == 'possible_match'
+
+
+def test_a_one_letter_last_name_is_found():
+    details, _ = run([excluded(last_name='I', first_name='CHEA')], full_name='Chea I')
+    assert details['outcome'] == 'possible_match'
+    details, _ = run([excluded(last_name='I', first_name='CHEA')], full_name='Chea Lim')
+    assert details['outcome'] == 'no_match'

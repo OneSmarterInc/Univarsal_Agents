@@ -403,3 +403,56 @@ def test_one_project_cannot_use_up_sam_for_everyone():
     with pytest.raises(JobFailed) as caught:
         search(job, 'Kim Lee', config, handler)
     assert caught.value.code == 'daily_limit_reached' and job.counts['project:busy'] == 3
+
+
+def listed(first, last, entity=None):
+    person = json.loads(json.dumps(PERSON))
+    person['exclusionIdentification'].update(
+        firstName=first, lastName=last, entityName=entity or f'{first} {last}'
+    )
+    return person
+
+
+@pytest.mark.parametrize(
+    ('first', 'last', 'searched'),
+    [
+        ('AMARA', 'OKAFOR', 'Dr. Amara Okafor'),
+        ('AMARA', 'OKAFOR JR', 'Amara Okafor'),
+        ('AMARA ELIZABETH', 'OKAFOR', 'Amara Grace Okafor'),
+        ('AMARA', 'OKAFOR', 'Amara Okafor, LCSW'),
+        ('BRIAN', 'OBRIEN', "Brian O'Brien"),
+        ('LUIS', 'ABADSANTOS', 'Luis Abad-Santos'),
+    ],
+)
+def test_titles_suffixes_and_middle_names_never_hide_a_listing(first, last, searched):
+    details, _ = run(page(listed(first, last)), full_name=searched)
+    assert details['outcome'] == 'possible_match'
+
+
+def test_a_firm_is_found_whatever_its_company_type():
+    firm = json.loads(json.dumps(FIRM))
+    firm['exclusionIdentification']['entityName'] = 'ACME HEALTH SERVICES INC'
+    details, _ = run(page(firm), full_name='Acme Health Services LLC')
+    assert details['outcome'] == 'possible_match'
+
+
+def test_another_first_name_is_not_a_hit():
+    details, _ = run(page(listed('JOHN', 'OKAFOR')), full_name='Amara Okafor')
+    assert details['outcome'] == 'no_match'
+
+
+def test_what_is_sent_to_sam_gov():
+    from agents_service.agents.sam.agent import search_terms
+
+    assert search_terms('Dr. Jane Marie Smith Jr.') == 'jane smith'
+    assert search_terms('Jane Smith, LCSW') == 'jane smith'
+    assert search_terms("Brian O'Brien") == 'brian brien'
+    assert search_terms('Acme Health Services, Inc.') == 'acme services'
+    assert search_terms('Dr. Jr.') == ''
+
+
+def test_a_name_of_titles_only_is_refused_and_an_empty_limit_is_no_limit():
+    for bad in ({'full_name': 'Dr. Jr.'}, {'full_name': 'Amara Okafor', 'previous_names': ['Mrs']}):
+        with pytest.raises(ValueError):
+            SamInput(**bad)
+    assert SamSettings(api_key=KEY, project_daily_limit='').project_daily_limit is None

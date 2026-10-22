@@ -34,7 +34,9 @@ STOP_HEADINGS = {
     'learn more about these skills',
 }
 # The mobile app titles its skills page "<Name>'s top skills"; OCR adds icon noise in front.
-TOP_SKILLS = re.compile(r"((?:[^\W\d_][\w.\-]*(?:'|’)s\s+)?top skills)[\s:]*$")
+TOP_SKILLS = re.compile(
+    r"((?:(?:[^\W\d_][\w.\-]*\s+){0,3}[^\W\d_][\w.\-]*(?:'|’)s\s+)?top skills)[\s:>›»)\]]*$"
+)
 
 
 def _top_skills_heading(value):

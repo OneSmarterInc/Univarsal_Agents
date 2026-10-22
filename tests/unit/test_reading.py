@@ -78,22 +78,58 @@ def test_text_drawn_out_of_order_is_read_in_reading_order(tmp_path):
     assert 'Weather Dashboard Mar 2025' in [' '.join(line.split()) for line in lines]
 
 
-def test_a_sidebar_is_read_as_its_own_column(tmp_path):
+def test_a_two_column_cv_keeps_its_columns(tmp_path):
+    """A full-width name line, then a sidebar and a main column, each stored as a block."""
     from agents_service.documents.reading import read_document
 
-    left = ['Sam Sample', 'sam@example.com', 'SKILLS', 'Python', 'SQL', 'Excel']
-    right = ['EXPERIENCE', 'Data Analyst at Example Health Group, Springfield',
+    left = ['SKILLS', 'Python', 'SQL', 'Kubernetes', 'EDUCATION', 'B.S. Computer Science', 'State University']
+    right = ['EXPERIENCE', 'Data Analyst, Example Health Group, 2019 - 2022',
              'Built weekly reports for the clinical teams and managers.',
-             'Automated the monthly data checks with Python scripts.', 'EDUCATION',
-             'Bachelor of Science in Statistics, Example University']  # fmt: skip
+             'PROJECTS', 'Reduced manual counting time with a small Python tool.']  # fmt: skip
 
-    def draw(page):  # drawn line by line across both columns
-        for i in range(max(len(left), len(right))):
-            if i < len(left):
-                page.drawString(40, 780 - i * 18, left[i])
-            if i < len(right):
-                page.drawString(220, 780 - i * 18, right[i])
+    def draw(page):
+        page.drawString(40, 800, 'Sam Sample  |  sam@example.com  |  Springfield, USA  |  +1 202-555-0100')
+        for i, text in enumerate(left):
+            page.drawString(40, 760 - i * 18, text)
+        for i, text in enumerate(right):
+            page.drawString(220, 760 - i * 18, text)
 
-    lines = read_document(_pdf(tmp_path, draw)).splitlines()
-    assert lines[:6] == left
-    assert lines[6:] == right
+    lines = [' '.join(line.split()) for line in read_document(_pdf(tmp_path, draw)).splitlines()]
+    assert lines[1 : 1 + len(left)] == left
+    assert lines[1 + len(left) :] == right
+
+
+def test_a_page_in_reading_order_is_left_as_it_is(tmp_path):
+    from agents_service.documents.reading import read_document
+
+    rows = [
+        'Alex Example',
+        'EXPERIENCE',
+        'Data Analyst, Example Health, 2021 - 2024',
+        'Built reports.',
+        'SKILLS',
+        'SQL',
+    ]
+
+    def draw(page):
+        for i, text in enumerate(rows):
+            page.drawString(50, 780 - i * 18, text)
+
+    assert read_document(_pdf(tmp_path, draw)).splitlines() == rows
+
+
+def test_tight_lines_do_not_take_letters_from_their_neighbours(tmp_path):
+    from agents_service.documents.reading import read_document
+
+    def draw(page):  # 0.9 line spacing, drawn out of order so the page is re-read by position
+        page.setFont('Helvetica', 12)
+        for text, y in (('EXPERIENCE', 700), ('PROJECTS', 657)):
+            page.drawString(50, y, text)
+        for i, text in enumerate(['Software Engineer (2019 - 2022)', 'Did quality work', 'Built a gadget tool',
+                                  'Planned yearly budgets']):  # fmt: skip
+            page.drawString(50, 689.2 - i * 10.8 - (0 if i < 2 else 21.6), text)
+        page.drawString(50, 760, 'Alex Example')
+
+    text = read_document(_pdf(tmp_path, draw))
+    for line in ('Software Engineer (2019 - 2022)', 'Did quality work', 'Built a gadget tool'):
+        assert line in text.splitlines(), text

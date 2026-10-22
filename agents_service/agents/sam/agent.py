@@ -34,7 +34,7 @@ from agents_service.agents.sam.response import (
     read_page,
 )
 from agents_service.lookups.http import SourceError, get_json
-from agents_service.lookups.screening import name_words, screen_outcome
+from agents_service.lookups.screening import NOT_NAMES, name_tokens, screen_outcome
 from agents_service.lookups.values import digits
 
 SOURCE = 'https://sam.gov/search/?index=ex'
@@ -51,13 +51,15 @@ class SamInput(BaseModel):
     def short_names(cls, value):
         if any(len(name) > 200 for name in value):
             raise ValueError('names are at most 200 characters')
+        if any(name.strip() and not search_terms(name) for name in value):
+            raise ValueError('each former name needs a word of two letters')
         return [name.strip() for name in value if name.strip()]
 
     @field_validator('full_name')
     @classmethod
     def a_real_name(cls, value):
-        if len(name_words(value)) == 0:
-            raise ValueError('give a name with at least one word of two letters')
+        if not search_terms(value):
+            raise ValueError('give a name with at least one word of two letters (titles alone do not count)')
         return value.strip()
 
     @field_validator('npi')
@@ -83,6 +85,11 @@ class SamSettings(BaseModel):
     project_daily_limit: int | None = Field(default=None, ge=1)
     # Set to true once one live answer has been checked against the field mapping.
     mapping_verified: bool = False
+
+    @field_validator('project_daily_limit', mode='before')
+    @classmethod
+    def empty_is_none(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator('api_key')
     @classmethod
@@ -121,21 +128,20 @@ class SamAgent(Agent):
         return AgentResult(records=[record], warnings=warnings)
 
 
-# Not part of a listed name: a search for "Dr Jane Smith" must not need "Dr" in the record.
-NOT_NAMES = {
-    'dr', 'mr', 'mrs', 'ms', 'miss', 'mx', 'prof', 'rev', 'sir', 'jr', 'sr', 'ii', 'iii', 'iv',
-    'md', 'do', 'rn', 'np', 'pa', 'phd', 'dds', 'dmd', 'lpn', 'aprn', 'crna', 'esq',
-}  # fmt: skip
-
-
 def search_terms(alias):
     """What is sent to SAM.gov for one name: its first and last name words only.
 
     SAM.gov puts AND between the words of exclusionName, so every word sent must be in
-    the listed name. A middle name, a title or a suffix the listing does not carry would
-    hide the person; the full name is still compared locally on every candidate.
+    the listed name. A middle name, a title, a suffix or a credential the listing does
+    not carry would hide the person; the full name is still compared locally on every
+    candidate. A word with an apostrophe or hyphen is sent as its longest part, which
+    SAM.gov's partial matching finds however the listing writes it.
     """
-    words = [w for w in re.findall(r'[^\W\d_]+', alias.casefold()) if len(w) > 1 and w not in NOT_NAMES]
+    words = []
+    for token in name_tokens(alias):
+        parts = [p for p in re.split(r"['’\-_]", token) if len(p) > 1 and not p.isdigit()]
+        if parts and ''.join(parts) not in NOT_NAMES:
+            words.append(max(parts, key=len))
     if not words:
         return ''
     return words[0] if len(words) == 1 else f'{words[0]} {words[-1]}'
@@ -213,7 +219,7 @@ def _ask(alias, page, config, transport):
 
 def screen(candidates, aliases, npi, fetched_at, mapping_verified):
     """(record, warnings) from the candidates SAM.gov returned for these names."""
-    wanted = [name_words(alias) for alias in aliases]
+    wanted = [alias for alias in aliases if alias.strip()]
     hits = dedupe([c for c in candidates if c.is_active() and matches(c, wanted, npi)])
     searched = ['full_name'] + (['previous_names'] if len(aliases) > 1 else []) + (['npi'] if npi else [])
     if hits:

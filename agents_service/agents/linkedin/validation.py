@@ -279,6 +279,8 @@ def _education_supported(item: dict, source: str, certifications: list[dict] | N
         EDUCATION_INSTITUTION.search(institution or '')
         and not (item.get('degree') or item.get('start_date') or item.get('end_date'))
         and not EMPLOYMENT_LANGUAGE.search(evidence)
+        and not CERTIFICATE_LANGUAGE.search(evidence)
+        and not _works_there(institution, source)
         and _on_profile_card(evidence, source)
     )
     if profile_card_school:
@@ -293,14 +295,25 @@ def _is_page_title(value):
     return heading in HEADINGS or heading in STOP_HEADINGS
 
 
+CARD_MARKER = re.compile(r'^\s*[\d,.]+\+?\s*(?:connections|followers)\b', re.I)
+
+
 def _on_profile_card(evidence, source):
-    """True when the evidence is in the profile card: before the first section heading."""
-    for line in source.splitlines():
-        if heading_of(line) in HEADINGS or heading_of(line) in STOP_HEADINGS:
+    """True when the evidence is in the profile card: before any section heading and
+    before the card's "N connections" line, which a profile card always shows."""
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        if heading_of(line) in HEADINGS or heading_of(line) in STOP_HEADINGS or CARD_MARKER.search(line):
             return False
         if evidence_supported(evidence, line):
-            return True
+            return any(CARD_MARKER.search(later) for later in lines[index + 1 :])
     return False
+
+
+def _works_there(institution, source):
+    """True when the screenshot names the institution as an employer ("Lecturer at X")."""
+    name = re.escape(institution.strip())
+    return bool(re.search(rf'(?:\bat|@|·)\s*{name}\b', source, re.I))
 
 
 def _clean_field(value: str | None) -> str:

@@ -320,3 +320,30 @@ def test_two_workers_storing_the_same_answer_at_once_is_not_an_error(services, m
     cache.put({'name': 'Alex'}, {'hits': [2]}, 60)  # the other worker's insert wins; no error
     monkeypatch.undo()
     assert cache.get({'name': 'Alex'}) == {'hits': [1]}
+
+
+def test_a_source_that_trickles_bytes_is_cut_off(monkeypatch):
+    from agents_service.lookups import http
+
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(http.time, 'monotonic', lambda: next(clock))
+
+    class Trickle(httpx.SyncByteStream):
+        def __iter__(self):
+            for _ in range(50):
+                yield b' '
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, stream=Trickle()))
+    with pytest.raises(SourceError) as caught:
+        get_json('https://source.example/x', seconds=15, transport=transport)
+    assert caught.value.kind == 'unavailable'
+
+
+def test_name_words_and_matching():
+    from agents_service.lookups.screening import name_words, same_person_or_firm
+
+    assert {'obrien', 'brien'} <= name_words("O'Brien")
+    assert {'abad', 'santos', 'abadsantos'} <= name_words('Abad-Santos')
+    assert same_person_or_firm('SMITH JANE ELIZABETH', 'Dr. Jane Marie Smith, LCSW')
+    assert not same_person_or_firm('JOHN SMITH', 'Jane Smith')
+    assert not same_person_or_firm('BETA INC', 'Acme Inc')

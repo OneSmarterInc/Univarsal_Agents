@@ -200,31 +200,105 @@ def restore_dashes(text, other):
 
 
 def layout_text(textpage):
-    """The page's text in reading order, from where each piece is on the page.
+    """The page's text in reading order by position, or '' to keep the stored order.
 
-    Some CV templates draw all headings first and all dates last, so the stored
-    text order loses which date belongs to which line. Here every text run is
-    placed by its position: runs at the same height form one line, left to
-    right, and lines go top to bottom. A real second column (a sidebar with
-    sentences) is read as a column of its own; short runs on the right, such as
-    dates, stay on their line.
+    Most PDFs store their text in reading order, two-column CVs included, and
+    that order is kept. Some CV templates store every heading first and every
+    date last; then the stored order jumps back up the page into the same area
+    it already covered. Only such a page is re-read by position: pieces at the
+    same height form one line (a date stays with its entry), lines go top to
+    bottom.
     """
-    runs = []
-    for index in range(textpage.count_rects()):
-        left, bottom, right, top = textpage.get_rect(index)
-        text = (
-            textpage.get_text_bounded(left, bottom, right, top).replace('\r', ' ').replace('\n', ' ').strip()
-        )
-        if text:
-            runs.append((left, bottom, right, top, text))
-    if not runs:
+    runs = _runs(textpage)
+    if not runs or not _stored_order_scrambled(runs):
         return ''
-    gutter = _column_gutter(runs)
-    if gutter is None:
-        return '\n'.join(_lines(runs))
-    left_runs = [run for run in runs if run[2] <= gutter]
-    right_runs = [run for run in runs if run[2] > gutter]
-    return '\n'.join(_lines(left_runs) + _lines(right_runs))
+    return '\n'.join(_lines(runs))
+
+
+def _runs(textpage):
+    """Pieces of one line each, in stored order, built from their own characters.
+
+    Characters are taken by index, so a piece never takes letters from the line
+    above or below, and nothing at the baseline (a decimal point) is lost.
+    """
+    runs, start, box = [], None, None
+
+    def close(end):
+        if start is not None and end > start:
+            text = textpage.get_text_range(start, end - start).replace('\r', ' ').replace('\n', ' ').strip()
+            if text:
+                runs.append((*box, text))
+
+    for index in range(textpage.count_chars()):
+        char = textpage.get_text_range(index, 1)
+        if char in ('\r', '\n'):
+            close(index)
+            start, box = None, None
+            continue
+        left, bottom, right, top = textpage.get_charbox(index)
+        if char.isspace() or right <= left:
+            if start is None:
+                start, box = index, None
+            continue
+        if box is not None:
+            height = max(box[3] - box[1], top - bottom, 1)
+            new_line = left < box[2] - height or bottom > box[3] or top < box[1]
+            if new_line:
+                close(index)
+                start, box = index, None
+        if start is None:
+            start = index
+        box = (
+            (left, bottom, right, top)
+            if box is None
+            else (min(box[0], left), min(box[1], bottom), max(box[2], right), max(box[3], top))
+        )
+    close(textpage.count_chars())
+    return runs
+
+
+def _stored_order_scrambled(runs):
+    """True when the stored order returns to page areas it has already passed.
+
+    The stored order is split where it jumps back up the page. In a two-column
+    CV the pieces are the columns: side by side, never inside each other. In a
+    scrambled template a later piece wraps around an earlier one in the same
+    column (headings stored first sit between the body lines stored later).
+    """
+    pieces, current = [], [runs[0]]
+    for run in runs[1:]:
+        previous = current[-1]
+        if run[3] > previous[3] + 1.5 * max(previous[3] - previous[1], 1):  # back up the page
+            pieces.append(current)
+            current = []
+        current.append(run)
+    pieces.append(current)
+    inside = 0
+    for i, first in enumerate(pieces):
+        for second in pieces[i + 1 :]:
+            inside += _wrapped(first, second) + _wrapped(second, first)
+    return inside >= 2
+
+
+def _wrapped(inner, outer):
+    """How many runs of `inner` sit between two runs of `outer` in the same column."""
+    count = 0
+    for run in inner:
+        middle = (run[1] + run[3]) / 2
+        same_column = [o for o in outer if _overlap(run[0], run[2], o[0], o[2]) > 0.5]
+        if any((o[1] + o[3]) / 2 > middle for o in same_column) and any(
+            (o[1] + o[3]) / 2 < middle for o in same_column
+        ):
+            count += 1
+    return count
+
+
+def _overlap(start_a, end_a, start_b, end_b):
+    """How much two ranges overlap, as a share of the shorter one."""
+    shorter = min(end_a - start_a, end_b - start_b)
+    if shorter <= 0:
+        return 0.0
+    return max(0.0, min(end_a, end_b) - max(start_a, start_b)) / shorter
 
 
 def _lines(runs):
@@ -247,34 +321,6 @@ def _lines(runs):
     return lines
 
 
-def _column_gutter(runs):
-    """The x where a real second column starts, or None.
-
-    A column is real when, on many lines, text sits on both sides of one empty
-    vertical strip and the right side holds sentences rather than dates.
-    """
-    page_left = min(r[0] for r in runs)
-    page_right = max(r[2] for r in runs)
-    width = page_right - page_left
-    if width < 200:
-        return None
-    best = None
-    for step in range(30, 71, 5):
-        gutter = page_left + width * step / 100
-        if any(r[0] < gutter < r[2] for r in runs):
-            continue  # a run crosses it: not an empty strip
-        left = [r for r in runs if r[2] <= gutter]
-        right = [r for r in runs if r[0] >= gutter]
-        if len(left) < 4 or len(right) < 4:
-            continue
-        average_right = sum(len(r[4]) for r in right) / len(right)
-        if average_right < 25:
-            continue  # dates, page numbers: they stay on their line
-        best = gutter
-        break
-    return best
-
-
 def best_pdf_text(path, pypdf_pages):
     """Per page, the cleaner of two text layers.
 
@@ -294,12 +340,14 @@ def best_pdf_text(path, pypdf_pages):
                 try:
                     stream = textpage.get_text_bounded().replace('\r\n', '\n').replace('\r', '\n')
                     try:
-                        placed = layout_text(textpage)
+                        # A rotated page keeps its stored order: its positions are not upright.
+                        placed = '' if page.get_rotation() else layout_text(textpage)
                     except Exception:  # noqa: BLE001 - the stored order is used instead
                         placed = ''
-                    # Reading order by position, unless it lost text compared with the stored order.
-                    keep = len(re.sub(r'\s', '', placed)) >= 0.97 * len(re.sub(r'\s', '', stream))
-                    pdfium_pages.append(placed if keep and placed else stream)
+                    # Re-read by position only when it is scrambled and nothing is lost or added.
+                    same = abs(len(re.sub(r'\s', '', placed)) - len(re.sub(r'\s', '', stream)))
+                    keep = placed and same <= 0.02 * len(re.sub(r'\s', '', stream))
+                    pdfium_pages.append(placed if keep else stream)
                 finally:
                     textpage.close()
                     page.close()

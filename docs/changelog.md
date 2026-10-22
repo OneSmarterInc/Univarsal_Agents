@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.2 — fixes from the review of 1.2.1 (October 2026)
+
+- **CV PDF order:** the 1.2.1 reorder is now used only when a page stores its text out of
+  order (a piece of text drawn between the lines of another piece in the same column).
+  Pages in reading order, two-column CVs, tables and rotated pages read exactly as in 1.2.0.
+  Text is grouped by character position, so close lines never swap letters.
+- **LinkedIn:** the profile-card school is kept only on the card itself (just before
+  "N connections") and never when it reads as an employer ("at", "@") or an issuer.
+- **CV:** "Rank 3 of 10" is no longer read as a GPA scale.
+- **SAM:** titles, suffixes, credentials (LCSW, MBA, ...) and middle names no longer hide
+  a listing, and firms compare without their company type (LLC, INC). Before, "Jane Smith,
+  LCSW" did not match "JANE ELIZABETH SMITH". A name of titles only is refused (422).
+  An empty `AGENTS_SAM_PROJECT_DAILY_LIMIT=` means no project limit.
+- **OIG and SAM:** "O'Brien" matches "OBRIEN" and "Abad-Santos" matches "ABADSANTOS"; OIG
+  finds one-letter last names.
+- **Service:** two services starting at once on PostgreSQL no longer migrate together;
+  reader folders left by a crash are deleted after an hour; an outside source that sends
+  bytes very slowly is cut off after twice its timeout.
+
 ## 1.2.1 — reading accuracy from the first laptop run (October 2026)
 
 - **CV (reader cv/2):** PDF text is read in reading order by position. Some CV templates

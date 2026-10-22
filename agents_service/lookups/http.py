@@ -18,6 +18,7 @@ Raises SourceError with one of these kinds:
 
 import json
 import logging
+import time
 from urllib.parse import urlsplit
 
 import httpx
@@ -43,6 +44,7 @@ def get_json(url, *, params=None, headers=None, seconds=15, source='source', tra
         raise ValueError('Outside sources are called over HTTPS only.')
     if where.query:
         raise ValueError('Give query values in params, so secret ones are never logged.')
+    deadline = time.monotonic() + 2 * seconds
     try:
         with httpx.Client(
             timeout=seconds, trust_env=False, follow_redirects=False, transport=transport
@@ -57,6 +59,10 @@ def get_json(url, *, params=None, headers=None, seconds=15, source='source', tra
                 body = b''
                 for chunk in response.iter_bytes():
                     body += chunk
+                    if time.monotonic() > deadline:
+                        # A source that trickles bytes would reset each read timeout forever.
+                        log.info('outside source too slow: source=%s address=%s', source, shown)
+                        raise SourceError('unavailable', source)
                     if len(body) > MAX_BYTES:
                         raise SourceError('bad_response', source, status)
     except SourceError:

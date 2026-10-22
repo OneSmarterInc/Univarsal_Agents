@@ -199,7 +199,7 @@ A finished job can also carry an `error` (state `failed`):
 | File size | 10 MB |
 | CV | 1 file, PDF up to 30 pages, text up to 36,000 characters |
 | LinkedIn | 1–5 screenshots |
-| SAM | The service's SAM.gov daily limit (10 a day with a free key), shared by all projects |
+| SAM | The service's SAM.gov daily limit (10 a day with a free key), shared by all projects. When it is used up, new SAM jobs are still accepted (202) and fail with `daily_limit_reached`; it is never a 429 |
 | Waiting before `expired` | 30 minutes |
 | Results kept | 7 days after the job ends, then deleted (download what you need) |
 

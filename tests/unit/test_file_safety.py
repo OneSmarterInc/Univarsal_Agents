@@ -169,3 +169,18 @@ def test_a_relative_tesseract_path_still_works_in_the_reader_folder(tmp_path, mo
     assert absolute_command('tesseract') == 'tesseract'  # found on PATH
     assert absolute_command('') == ''
     assert absolute_command('bin/tesseract') == str(tmp_path / 'bin' / 'tesseract')
+
+
+def test_reader_folders_left_by_a_crash_are_removed(tmp_path, monkeypatch):
+    import tempfile
+
+    from agents_service.documents import isolation
+
+    monkeypatch.setattr(tempfile, 'gettempdir', lambda: str(tmp_path))
+    old, new = tmp_path / 'agents-read-old', tmp_path / 'agents-read-new'
+    for folder in (old, new):
+        folder.mkdir()
+        (folder / 'page.png').write_bytes(b'page')
+    os.utime(old, (time.time() - 7200, time.time() - 7200))
+    isolation._remove_old_folders()
+    assert not old.exists() and new.exists()

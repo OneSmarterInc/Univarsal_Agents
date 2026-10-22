@@ -83,7 +83,8 @@ agents try --agent oig --key <key> --data '{"full_name": "Amara Okafor", "date_o
 Send what you have: `full_name`, `previous_names` (an exclusion is listed under the
 name held at the time), `date_of_birth`, `npi`. Each name needs a first name (or an
 initial) and a last name; "Smith" alone is refused (422), because the list is searched on
-both. A listing with only an initial ("DOE, J") or no first name is still found. A name alone can only reach
+both; a one-word firm ("Acme") is refused for the same reason, so send the firm's full name. A listing with only an initial ("DOE, J"), a one-letter last name or no first
+name is still found. "O'Brien" and "Abad-Santos" match however the list writes them. A name alone can only reach
 `possible_match`; a matching date of birth or NPI makes it a `match`; a different date
 of birth rules a record out.
 
@@ -105,7 +106,10 @@ The key is sent only to SAM.gov. It is never logged or stored in a result.
 
 SAM.gov joins the words of a name search with AND, so only the first and last name
 words are sent ("Dr Jane Marie Smith Jr" is searched as "jane smith"); every candidate
-is then compared with the full name here. GSA serves at most 10 records per page.
+is then compared with the full name here. Titles, suffixes, credentials and middle names
+never hide a listing ("Jane Smith, LCSW" finds "SMITH, JANE ELIZABETH"), and a firm is
+compared without its company type ("Acme Health LLC" finds "ACME HEALTH INC"). A name of
+titles only ("Dr. Jr.") is refused (422). GSA serves at most 10 records per page.
 
 **Before relying on SAM:** the field mapping comes from GSA's published sample. Make
 one live call with a name from https://sam.gov/search/?index=ex, check the hit's name,

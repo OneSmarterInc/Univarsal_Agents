@@ -93,6 +93,7 @@ Set-Content -Encoding utf8 npi.json '{"npi": "1104130236"}'
 agents create-key --project test --agent nppes
 agents try --agent nppes --key <key> --data-file npi.json
 agents tool oig load --file D:\test\UPDATED.csv --as-of 2026-10-01
+agents create-key --project test --agent oig
 Set-Content -Encoding utf8 person.json '{"full_name": "First Last"}'
 agents try --agent oig --key <oig key> --data-file person.json
 ```

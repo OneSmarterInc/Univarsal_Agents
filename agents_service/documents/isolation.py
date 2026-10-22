@@ -18,6 +18,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from importlib import import_module
 from pathlib import Path
 
@@ -37,16 +38,37 @@ def resolve(clean):
     return getattr(import_module(module), name)
 
 
+def _remove(folder):
+    """Delete a reader folder. On Windows a killed reader can hold a file for a moment."""
+    for attempt in range(5):
+        shutil.rmtree(folder, ignore_errors=True)
+        if not os.path.exists(folder):
+            return
+        time.sleep(0.2 * (attempt + 1))
+
+
+def _remove_old_folders(hours=1):
+    """Delete reader folders left by a crash (more than an hour old): they hold candidates' pages."""
+    cutoff = time.time() - hours * 3600
+    for old in Path(tempfile.gettempdir()).glob('agents-read-*'):
+        try:
+            if old.is_dir() and old.stat().st_mtime < cutoff:
+                shutil.rmtree(old, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def read_text(path, settings, clean=None):
     """The document's text. `clean` is an import path like 'pkg.mod:function'."""
     if not getattr(settings, 'isolate_parsing', True):
         reading.TESSERACT_CMD = settings.tesseract_cmd
         return reading.read_document(path, clean=resolve(clean))
+    _remove_old_folders()
     folder = tempfile.mkdtemp(prefix='agents-read-')
     try:
         stdout = _run_child(Path(path).resolve(), clean, settings, folder)
     finally:
-        shutil.rmtree(folder, ignore_errors=True)
+        _remove(folder)
     if len(stdout) > 4 * 1024 * 1024:
         raise ExtractionError('The file produced more text than the processing limit.')
     try:

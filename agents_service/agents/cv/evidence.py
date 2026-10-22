@@ -144,10 +144,15 @@ def stated_scale(scale, text):
         return False
     # 4, 4.0 and 4.00 are the same scale.
     number = rf'{int(value)}(?:\.0+)?' if value.is_integer() else re.escape(text_scale)
+    words = {4: 'four', 5: 'five', 7: 'seven', 10: 'ten', 20: 'twenty', 100: 'hundred'}
+    if value.is_integer() and int(value) in words:
+        number = rf'(?:{number}|{words[int(value)]})'
+    after = r'(?![\d.])'
     patterns = (
-        rf'/\s*{number}(?![\d.])',
-        rf'\bout\s+of\s+{number}(?![\d.])',
-        rf'\bscale\s*(?:of|:)?\s*{number}(?![\d.])',
-        rf'(?<![\d.]){number}\s*-?\s*point\s+(?:scale|grading)',
+        rf'/\s*{number}{after}',  # 8.9/10
+        rf'\bout\s+of\s+{number}{after}',  # out of 10, out of ten
+        rf'\bscale\s*(?:of|:)?\s*{number}{after}',  # scale of 10, Scale: 10
+        rf'(?<![\d.]){number}\s*-?\s*(?:point\s+)?(?:scale|grading)',  # 10-point scale, (4.0 scale)
+        rf'\d[.,]\d+\s+(?:on|of)\s+(?:a\s+)?{number}{after}',  # 3.6 on 4, 3.7 of 4.0, 9.1 on a 10
     )
     return any(re.search(pattern, text, re.I) for pattern in patterns)

@@ -8,7 +8,7 @@ thing. The field paths come from GSA's published response sample.
 
 from dataclasses import dataclass, field
 
-from agents_service.lookups.screening import name_words
+from agents_service.lookups.screening import name_words, same_person_or_firm
 from agents_service.lookups.values import clean, digits
 
 # Response paths, tried in order (dotted). The first per field is GSA's current shape.
@@ -136,18 +136,16 @@ def record_name(entry):
 def matches(record, aliases, npi):
     """SAM's own matching is looser than ours: what it returns are candidates only.
 
-    Each name given is compared on its own: pooling the words of a current and a
-    former name would stop "Jane Marie Smith" matching the former name "Jane Smith".
+    Each name given is compared on its own (a former name never pools its words with
+    the current one), and titles, suffixes and middle names do not hide a listing.
     """
     if npi and record.npi and record.npi == npi:
         return True
-    if not record.words:
-        return False
-    return any(record.words <= words or words <= record.words for words in aliases if words)
+    return name_matches(record, aliases)
 
 
 def name_matches(record, aliases):
-    return bool(record.words) and any(record.words <= w or w <= record.words for w in aliases if w)
+    return bool(record.name) and any(same_person_or_firm(record.name, alias) for alias in aliases if alias)
 
 
 def dedupe(records):

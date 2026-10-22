@@ -159,9 +159,9 @@ class SectionGateTests(SimpleTestCase):
         self.assertTrue(section_may_exist(('certifications',), 'Licenses\nRN licence'))
 
 
-DEMO_CV = """Hansavahini
+DEMO_CV = """Meerapriya
 Clinical Data Analyst
-Columbus, Ohio, United States | hansavahini@example.com | +1 202-555-0147
+Columbus, Ohio, United States | meerapriya@example.com | +1 202-555-0147
 Professional Summary
 Clinical data analyst with four years of experience.
 Work Experience
@@ -195,7 +195,7 @@ class LayoutRecordTests(SimpleTestCase):
         with (
             patch(
                 'agents_service.agents.cv.local_reader.extract_owner',
-                return_value=[{'value': 'Hansavahini', 'evidence': 'Hansavahini'}],
+                return_value=[{'value': 'Meerapriya', 'evidence': 'Meerapriya'}],
             ),
             patch('agents_service.agents.cv.local_reader.provider') as factory,
         ):

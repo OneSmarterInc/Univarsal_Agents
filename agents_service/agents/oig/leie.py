@@ -8,6 +8,7 @@ identification: the file has no SSN, and names collide and change.
 
 import csv
 import io
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
@@ -174,9 +175,9 @@ class Wanted:
 
     def __init__(self, aliases):
         tokens = [t for alias in aliases for t in _tokens(alias)]
-        self.words = {t for t in tokens if len(t) > 1}
+        self.words = {w for alias in aliases for w in name_words(alias)}
         # Each name on its own, for firm names (see _name_matches).
-        self.names = [w for w in ({t for t in _tokens(alias) if len(t) > 1} for alias in aliases) if w]
+        self.names = [w for w in (name_words(alias) for alias in aliases) if w]
         self.initials_given = {t for t in tokens if len(t) == 1}
         self.first_letters = {t[0] for t in tokens}
 
@@ -198,7 +199,13 @@ def _name_matches(record, wanted):
         # it made every "Brian" a possible match for "BRIAN H JENKINS, D D S, P A".
         core = record.business_words - FIRM_WORDS
         return any(name <= record.business_words or (core and core <= name) for name in wanted.names)
-    if not record.last_words or not record.last_words & wanted.words:
+    if not record.last_words:
+        # A one-letter last name ("CHEA I"): matched by that letter given on its own.
+        letter = re.sub(r'[^a-z]', '', record.last_name.casefold())
+        if len(letter) != 1 or letter not in wanted.initials_given:
+            return False
+        return bool(record.first_words & wanted.words)
+    if not record.last_words & wanted.words:
         return False
     if record.first_words:
         return bool(record.first_words & wanted.words) or record.first_initial in wanted.initials_given
