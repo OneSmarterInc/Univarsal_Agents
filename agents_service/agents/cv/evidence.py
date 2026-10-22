@@ -121,5 +121,33 @@ def supported_resume(data, source):
         elif value is not None and not value_in_source(value, source):
             data[key] = None
             warnings.append(f'An unsupported {key.replace("_", " ")} was excluded.')
+    # A GPA scale must be written as a scale ("8.9/10", "out of 10", "10-point scale").
+    # A model asked for a scale the CV does not give tends to repeat the GPA instead.
+    if data.get('gpa_scale') is not None and not stated_scale(data['gpa_scale'], source):
+        data['gpa_scale'] = None
+        warnings.append('An unsupported gpa scale was excluded.')
+    variants = data.get('_scalar_variants') or {}
+    if 'gpa_scale' in variants:
+        variants['gpa_scale'] = [v for v in variants['gpa_scale'] if stated_scale(v['value'], v['evidence'])]
+        if not variants['gpa_scale']:
+            del variants['gpa_scale']
     data['warnings'] = list(dict.fromkeys(warnings))
     return data
+
+
+def stated_scale(scale, text):
+    """True when the text writes this number as a grading scale."""
+    text_scale = str(scale).strip()
+    try:
+        value = float(text_scale)
+    except ValueError:
+        return False
+    # 4, 4.0 and 4.00 are the same scale.
+    number = rf'{int(value)}(?:\.0+)?' if value.is_integer() else re.escape(text_scale)
+    patterns = (
+        rf'/\s*{number}(?![\d.])',
+        rf'\bout\s+of\s+{number}(?![\d.])',
+        rf'\bscale\s*(?:of|:)?\s*{number}(?![\d.])',
+        rf'(?<![\d.]){number}\s*-?\s*point\s+(?:scale|grading)',
+    )
+    return any(re.search(pattern, text, re.I) for pattern in patterns)

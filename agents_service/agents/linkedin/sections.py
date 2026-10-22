@@ -10,6 +10,7 @@ HEADINGS = {
     'about': ('about',),
     'summary': ('about',),
     'skills': ('skills',),
+    'top skills': ('skills',),  # the mobile app: "<Name>'s top skills"
     'technical skills': ('skills',),
     'experience': ('experiences', 'skills'),
     'work experience': ('experiences', 'skills'),
@@ -30,11 +31,22 @@ STOP_HEADINGS = {
     'promoted',
     'people you may know',
     'you might like',
+    'learn more about these skills',
 }
+# The mobile app titles its skills page "<Name>'s top skills"; OCR adds icon noise in front.
+TOP_SKILLS = re.compile(r"((?:[^\W\d_][\w.\-]*(?:'|’)s\s+)?top skills)[\s:]*$")
+
+
+def _top_skills_heading(value):
+    """True for "top skills" or "<name>'s top skills", after icon noise with no real words."""
+    found = TOP_SKILLS.search(value)
+    return bool(found) and not re.search(r'[^\W\d_]{2,}', value[: found.start(1)])
 
 
 def heading_of(line):
     value = line.strip().casefold()
+    if _top_skills_heading(value):
+        return 'top skills'
     for heading in sorted((*HEADINGS, *STOP_HEADINGS), key=len, reverse=True):
         if re.fullmatch(re.escape(heading) + r'[\s:+@©®0-9()\-oo]*', value):
             return heading

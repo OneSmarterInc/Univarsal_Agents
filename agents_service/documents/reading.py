@@ -199,12 +199,89 @@ def restore_dashes(text, other):
     return ''.join(out)
 
 
+def layout_text(textpage):
+    """The page's text in reading order, from where each piece is on the page.
+
+    Some CV templates draw all headings first and all dates last, so the stored
+    text order loses which date belongs to which line. Here every text run is
+    placed by its position: runs at the same height form one line, left to
+    right, and lines go top to bottom. A real second column (a sidebar with
+    sentences) is read as a column of its own; short runs on the right, such as
+    dates, stay on their line.
+    """
+    runs = []
+    for index in range(textpage.count_rects()):
+        left, bottom, right, top = textpage.get_rect(index)
+        text = (
+            textpage.get_text_bounded(left, bottom, right, top).replace('\r', ' ').replace('\n', ' ').strip()
+        )
+        if text:
+            runs.append((left, bottom, right, top, text))
+    if not runs:
+        return ''
+    gutter = _column_gutter(runs)
+    if gutter is None:
+        return '\n'.join(_lines(runs))
+    left_runs = [run for run in runs if run[2] <= gutter]
+    right_runs = [run for run in runs if run[2] > gutter]
+    return '\n'.join(_lines(left_runs) + _lines(right_runs))
+
+
+def _lines(runs):
+    rows = []
+    for run in sorted(runs, key=lambda r: -(r[1] + r[3]) / 2):
+        middle, height = (run[1] + run[3]) / 2, max(run[3] - run[1], 1)
+        row = rows[-1] if rows else None
+        if row and abs(row['middle'] - middle) <= 0.5 * max(height, row['height']):
+            row['runs'].append(run)
+        else:
+            rows.append({'middle': middle, 'height': height, 'runs': [run]})
+    lines = []
+    for row in rows:
+        parts, last_right = [], None
+        for left, _bottom, right, _top, text in sorted(row['runs'], key=lambda r: r[0]):
+            gap = '' if last_right is None else (' ' if left - last_right < 15 else '   ')
+            parts.append(gap + text)
+            last_right = right
+        lines.append(''.join(parts))
+    return lines
+
+
+def _column_gutter(runs):
+    """The x where a real second column starts, or None.
+
+    A column is real when, on many lines, text sits on both sides of one empty
+    vertical strip and the right side holds sentences rather than dates.
+    """
+    page_left = min(r[0] for r in runs)
+    page_right = max(r[2] for r in runs)
+    width = page_right - page_left
+    if width < 200:
+        return None
+    best = None
+    for step in range(30, 71, 5):
+        gutter = page_left + width * step / 100
+        if any(r[0] < gutter < r[2] for r in runs):
+            continue  # a run crosses it: not an empty strip
+        left = [r for r in runs if r[2] <= gutter]
+        right = [r for r in runs if r[0] >= gutter]
+        if len(left) < 4 or len(right) < 4:
+            continue
+        average_right = sum(len(r[4]) for r in right) / len(right)
+        if average_right < 25:
+            continue  # dates, page numbers: they stay on their line
+        best = gutter
+        break
+    return best
+
+
 def best_pdf_text(path, pypdf_pages):
     """Per page, the cleaner of two text layers.
 
     pypdf can split words ("D eveloped") and join lines ("NAMEB.E.") for some
-    fonts. PDFium keeps the visual lines. The page uses whichever has fewer
-    split words, and PDFium unless it lost text.
+    fonts. PDFium keeps the visual lines, in reading order by position (see
+    layout_text). The page uses whichever has fewer split words, and PDFium
+    unless it lost text.
     """
     try:
         import pypdfium2 as pdfium
@@ -215,7 +292,14 @@ def best_pdf_text(path, pypdf_pages):
                 page = pdf[i]
                 textpage = page.get_textpage()
                 try:
-                    pdfium_pages.append(textpage.get_text_bounded().replace('\r\n', '\n').replace('\r', '\n'))
+                    stream = textpage.get_text_bounded().replace('\r\n', '\n').replace('\r', '\n')
+                    try:
+                        placed = layout_text(textpage)
+                    except Exception:  # noqa: BLE001 - the stored order is used instead
+                        placed = ''
+                    # Reading order by position, unless it lost text compared with the stored order.
+                    keep = len(re.sub(r'\s', '', placed)) >= 0.97 * len(re.sub(r'\s', '', stream))
+                    pdfium_pages.append(placed if keep and placed else stream)
                 finally:
                     textpage.close()
                     page.close()

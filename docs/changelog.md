@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.1 — reading accuracy from the first laptop run (October 2026)
+
+- **CV (reader cv/2):** PDF text is read in reading order by position. Some CV templates
+  draw every heading first and every date last, so the model could not tell which lines
+  were projects or which dates went with which entry. Runs at the same height now form one
+  line (a date stays with its entry), lines go top to bottom, and a real sidebar column is
+  read as its own column. Falls back to the stored order if the placed text loses anything.
+- **CV:** `gpa_scale` is kept only when the CV writes a scale ("8.9/10", "out of 10",
+  "10-point scale"); the model used to repeat the GPA when the CV gave no scale.
+- **LinkedIn (reader linkedin/2):** mobile-app screenshots. The "<Name>'s top skills" page is
+  recognised as a skills section (its skills were all rejected before); a page title such as
+  "top skills" is never a headline; the school shown on the profile card is kept.
+
 ## 1.2.0 — lookup agents: NPPES, OIG, SAM (October 2026)
 
 - Three lookup agents, ported from OneSmarter's kormic-agents package: **NPPES** (a US NPI

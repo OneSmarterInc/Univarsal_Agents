@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import TypedDict
 
 from agents_service.agents.linkedin.literal import literal_observation
-from agents_service.agents.linkedin.sections import HEADINGS, heading_of, sections
+from agents_service.agents.linkedin.sections import HEADINGS, STOP_HEADINGS, heading_of, sections
 from agents_service.agents.linkedin.upload_sections import context_source, restrict_fields
 from agents_service.documents.matching import canonical, evidence_supported, value_supported
 
@@ -274,9 +274,33 @@ def _education_supported(item: dict, source: str, certifications: list[dict] | N
             and institution in {_normalize_identity(cert_name), _normalize_identity(cert_issuer)}
         ):
             return False
+    # The profile card shows the school on its own line, without a heading, degree or dates.
+    profile_card_school = bool(
+        EDUCATION_INSTITUTION.search(institution or '')
+        and not (item.get('degree') or item.get('start_date') or item.get('end_date'))
+        and not EMPLOYMENT_LANGUAGE.search(evidence)
+        and _on_profile_card(evidence, source)
+    )
+    if profile_card_school:
+        return True
     return bool(EDUCATION_LANGUAGE.search(evidence)) and (
         has_explicit_section or has_academic_detail or has_school_date_relationship
     )
+
+
+def _is_page_title(value):
+    heading = heading_of(str(value or ''))
+    return heading in HEADINGS or heading in STOP_HEADINGS
+
+
+def _on_profile_card(evidence, source):
+    """True when the evidence is in the profile card: before the first section heading."""
+    for line in source.splitlines():
+        if heading_of(line) in HEADINGS or heading_of(line) in STOP_HEADINGS:
+            return False
+        if evidence_supported(evidence, line):
+            return True
+    return False
 
 
 def _clean_field(value: str | None) -> str:
@@ -574,6 +598,9 @@ def _scalar(field, item, source):
     if field == 'name' and not _owner_name_supported(item.get('value'), source):
         return None
     if field == 'location' and not _location_supported(item, source):
+        return None
+    if field == 'headline' and _is_page_title(item.get('value')):
+        # "top skills", "About", "Experience": a page or section title, never a headline.
         return None
     if (
         item.get('value')

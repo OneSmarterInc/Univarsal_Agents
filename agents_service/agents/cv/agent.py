@@ -70,7 +70,7 @@ class CvAgent(Agent):
         'education', 'work_experience_entries', 'projects', 'publications',
         'certifications', 'awards', 'volunteering', 'skills', 'languages', 'other_information',
     )  # fmt: skip
-    reader_version = 'cv/1'
+    reader_version = 'cv/2'
 
     def file_rule(self, settings):
         return FileRule(

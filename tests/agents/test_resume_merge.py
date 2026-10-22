@@ -45,9 +45,11 @@ class ResumeMergeTests(SimpleTestCase):
             'gpa_scale': ['4.0', '5.0'],
             'summary': ['Python developer.', 'Python developer'],
         }
+        # A scale must be written as a scale in the CV (see test_a_gpa_scale_needs_scale_wording).
+        quotes = {'gpa_scale': ['GPA 3.2/4.0', 'GPA 4.1/5.0']}
         for field, values in cases.items():
             with self.subTest(field=field):
-                result = self.merge(field, values)
+                result = self.merge(field, values, quotes.get(field))
                 self.assertIsNone(result[field])
                 self.assertEqual([e['value'] for e in result['_scalar_variants'][field]], values)
 
@@ -251,3 +253,21 @@ class NumericSupportTests(SimpleTestCase):
         self.assertFalse(value_in_source(3.9, 'GPA: 3.80'))
         self.assertFalse(value_in_source(3.8, 'Room 13.8'))  # part of a larger number is not support
         self.assertTrue(value_in_source(3.8, 'GPA 3.8.'))  # end of a sentence
+
+
+class GpaScaleTests(SimpleTestCase):
+    def test_a_gpa_scale_needs_scale_wording(self):
+        from agents_service.agents.cv.evidence import stated_scale
+
+        assert not stated_scale('8.91', 'Current CGPA: 8.91')  # the GPA repeated is not a scale
+        assert not stated_scale('10', 'Built 10 projects')
+        for scale, text in [('10', 'CGPA 8.91/10'), ('10', '8.9 out of 10'), ('4.0', 'GPA: 3.8 / 4'),
+                            ('4', 'GPA 3.8/4.0'), ('10', 'on a 10-point scale'), ('10', 'Scale: 10')]:  # fmt: skip
+            assert stated_scale(scale, text), (scale, text)
+
+    def test_a_repeated_gpa_is_dropped_as_a_scale(self):
+        data = {'gpa': 8.91, 'gpa_scale': '8.91', 'warnings': []}
+        result = supported_resume(data, 'Current CGPA: 8.91')
+        assert result['gpa'] == 8.91 and result['gpa_scale'] is None
+        kept = supported_resume({'gpa': 8.91, 'gpa_scale': '10', 'warnings': []}, 'CGPA: 8.91/10')
+        assert kept['gpa_scale'] == '10'
