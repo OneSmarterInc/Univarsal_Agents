@@ -55,7 +55,7 @@ class ProbeAgent(Agent):
                 raise JobFailed('source_unavailable', retry=exc.kind == 'unavailable') from None
             job.cache.put(question, cached, 3600)
         with job.references.local_copy('list') as (path, info):
-            listed = path.read_text().split()
+            listed = path.read_text(encoding='utf-8').split()
         return AgentResult(
             records=[
                 data_record(

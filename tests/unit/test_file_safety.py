@@ -128,7 +128,7 @@ def test_timeout_kills_the_reader_and_its_children_and_leaves_no_files(tmp_path,
     settings = make_settings(tmp_path, isolate_parsing=True, file_seconds=5)
     with pytest.raises(ExtractionError, match='took too long'):
         read_text(path, settings, clean=SLOW_CLEANER)
-    report = json.loads(path.with_suffix('.report').read_text())
+    report = json.loads(path.with_suffix('.report').read_text(encoding='utf-8'))
     assert report['cwd'] == report['folder']  # the reader works in its own empty folder
     assert not Path(report['folder']).exists()  # deleted with everything in it
     time.sleep(0.2)
@@ -140,7 +140,9 @@ def running(pid):
     status = Path(f'/proc/{pid}/status')
     if not status.exists():
         return False
-    state = next(line for line in status.read_text().splitlines() if line.startswith('State:'))
+    state = next(
+        line for line in status.read_text(encoding='utf-8').splitlines() if line.startswith('State:')
+    )
     return state.split()[1] not in ('Z', 'X')
 
 

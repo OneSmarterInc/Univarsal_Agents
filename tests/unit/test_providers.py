@@ -105,7 +105,8 @@ def test_unreachable_server_is_a_connection_error(tmp_path):
     cfg = config(tmp_path, model_base_url='http://127.0.0.1:9/v1')
     with provider(cfg, timeout=2) as client, pytest.raises(AIError) as error:
         client.generate(system='s', messages=[{'role': 'user', 'content': 'u'}], max_tokens=10)
-    assert error.value.reason == 'connection'
+    # Linux refuses the closed port at once; Windows lets the connection attempt time out.
+    assert error.value.reason in ('connection', 'timeout')
 
 
 def test_request_larger_than_context_is_refused(tmp_path):

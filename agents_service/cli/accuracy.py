@@ -57,7 +57,7 @@ def score_case(case, records):
 
 
 def run(settings, agent=None, cases_path=DEFAULT_CASES, ask=facts_from_text):
-    cases = json.loads(Path(cases_path).read_text())['cases']
+    cases = json.loads(Path(cases_path).read_text(encoding='utf-8'))['cases']
     if agent:
         cases = [c for c in cases if c['agent'] == agent]
     total_found = total_expected = 0

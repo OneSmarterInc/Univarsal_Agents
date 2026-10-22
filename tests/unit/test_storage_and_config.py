@@ -112,7 +112,7 @@ def test_env_example_loads(monkeypatch):
     from pathlib import Path
 
     example = Path(__file__).resolve().parents[2] / '.env.example'
-    for line in example.read_text().splitlines():
+    for line in example.read_text(encoding='utf-8').splitlines():
         line = line.strip()
         if line and not line.startswith('#'):
             key, value = line.split('=', 1)

@@ -4,7 +4,7 @@ import pytest
 
 from agents_service.documents.isolation import read_text
 from agents_service.documents.reading import ExtractionError
-from tests.conftest import make_settings
+from tests.conftest import make_settings, needs_tesseract
 
 
 def test_pdf_is_read_in_a_separate_process(tmp_path, pdf_bytes):
@@ -14,6 +14,7 @@ def test_pdf_is_read_in_a_separate_process(tmp_path, pdf_bytes):
     assert 'Data Analyst, Example Health' in text
 
 
+@needs_tesseract
 def test_screenshot_ocr_with_the_linkedin_cleaner(tmp_path, png_bytes):
     path = tmp_path / 'shot.png'
     path.write_bytes(png_bytes)

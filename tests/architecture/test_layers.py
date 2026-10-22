@@ -7,7 +7,7 @@ PACKAGE = Path(__file__).resolve().parents[2] / 'agents_service'
 
 
 def imports_of(path):
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(path.read_text(encoding='utf-8'))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             yield node.module
@@ -56,7 +56,7 @@ def test_only_ai_talks_to_a_model():
     for path in PACKAGE.rglob('*.py'):
         if path.parent.name == 'ai':
             continue
-        text = path.read_text()
+        text = path.read_text(encoding='utf-8')
         assert 'chat/completions' not in text and 'import anthropic' not in text, path
 
 
@@ -78,7 +78,7 @@ def test_agents_never_import_the_wiring_or_the_cli():
 def test_only_storage_touches_s3():
     for path in PACKAGE.rglob('*.py'):
         if path.name != 'storage.py':
-            assert 'boto3' not in path.read_text(), path
+            assert 'boto3' not in path.read_text(encoding='utf-8'), path
 
 
 def test_every_registered_agent_follows_the_contract():

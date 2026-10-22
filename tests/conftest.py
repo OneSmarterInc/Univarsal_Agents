@@ -1,5 +1,6 @@
 import io
 import os
+import shutil
 import zipfile
 
 import pytest
@@ -16,6 +17,22 @@ from agents_service.services import build
 # Run the whole suite on PostgreSQL too:
 #   AGENTS_TEST_DATABASE_URL=postgresql+psycopg://user@host:5432/agents_test pytest
 TEST_DATABASE = os.environ.get('AGENTS_TEST_DATABASE_URL', '')
+
+
+def find_tesseract():
+    """Tesseract for the OCR tests: AGENTS_TESSERACT_CMD (environment or .env), else PATH."""
+    from dotenv import dotenv_values
+
+    given = os.environ.get('AGENTS_TESSERACT_CMD') or dotenv_values('.env').get('AGENTS_TESSERACT_CMD') or ''
+    if given and os.path.exists(given):
+        return given
+    return shutil.which('tesseract') or ''
+
+
+TESSERACT = find_tesseract()
+needs_tesseract = pytest.mark.skipif(
+    not TESSERACT, reason='Tesseract is not installed (set AGENTS_TESSERACT_CMD)'
+)
 
 
 def fresh_database(url):
@@ -38,6 +55,7 @@ def make_settings(tmp_path, **overrides):
         'data_dir': tmp_path / 'data',
         'key_pepper': 'test-pepper-' * 4,
         'isolate_parsing': False,
+        'tesseract_cmd': TESSERACT,
         'poll_seconds': 0.01,
         '_env_file': None,
     }

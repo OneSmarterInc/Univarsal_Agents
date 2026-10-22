@@ -9,12 +9,12 @@ CASES = Path(__file__).resolve().parents[2] / 'accuracy' / 'cases.json'
 
 
 def perfect(agent, text, config):
-    case = next(c for c in json.loads(CASES.read_text())['cases'] if c['text'] == text)
+    case = next(c for c in json.loads(CASES.read_text(encoding='utf-8'))['cases'] if c['text'] == text)
     return [{'section': s, 'value': ' · '.join(v)} for s, v in case['expect'].items()]
 
 
 def test_every_case_is_well_formed():
-    cases = json.loads(CASES.read_text())['cases']
+    cases = json.loads(CASES.read_text(encoding='utf-8'))['cases']
     assert {c['agent'] for c in cases} == {'cv', 'linkedin'}
     for case in cases:
         for values in case['expect'].values():
