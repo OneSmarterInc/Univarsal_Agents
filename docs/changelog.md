@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.1.0 — fixes from the second review (October 2026)
+
+- Hostile files stay out of the API: the API runs only quick checks (size, type, header,
+  the Word file's part list). A PDF's page tree and a Word file's links are checked in the
+  worker's limited reader process. A 90,000-page PDF now takes 0.0 s in the API (was 51 s).
+- Each read has its own empty folder (working and temp folder), deleted afterwards; on
+  timeout the reader and everything it started (tesseract) are killed together.
+- Each agent's upload limit applies to its own address only.
+- A database error while saving no longer marks a good result failed; the job returns to
+  the line. A retried job gets a fresh wait (new column `queued_at`, migration 0002).
+- The sweep never deletes a waiting or running job. A job's input data is deleted when it ends.
+- Fair turns count only the agents a worker serves. Running jobs check the line every 10 s.
+- Job line settings that would break it are refused at start.
+- Model overrides that change the provider or server get that provider's limits and never
+  the global API key. `reasoning_effort` is sent only when set (Ollama keeps `none`).
+- Lookup (data) agents: `empty_is_answer`, `data_record()`, `job.check_cancelled()`, a working
+  template (`agents/_template_data`), `agents try --data`, and `data_schema` in `GET /v1/agents`.
+- Agent definitions and record shapes are checked.
+- Renamed to Universal Agents (package `universal-agents`).
+
 ## 1.0.0 — phase 1 (October 2026)
 
 - New layered service `agents_service` with an agent registry; the October pilot moved to `legacy/`.

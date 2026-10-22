@@ -109,7 +109,11 @@ class Agent(ABC):
             'sections': list(self.sections),
             'reader_version': self.reader_version,
             'address': f'/v1/{self.name}/jobs',
+            'empty_is_answer': self.empty_is_answer,
         }
+        if self.input_kind == 'data' and self.data_model is not None:
+            # What to send: POST {"data": {...}, "fields": "...", "subject_ref": "..."}
+            info['data_schema'] = self.data_model.model_json_schema()
         if rule:
             info['files'] = {
                 'types': sorted(rule.types),

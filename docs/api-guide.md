@@ -52,6 +52,17 @@ curl -X POST https://agents.example.com/v1/cv/jobs \
  "links": {"self": "/v1/cv/jobs/job_5c1f..."}}
 ```
 
+**Lookup agents** (input `data` in `GET /v1/agents`) take JSON instead of files. Their
+`data_schema` in `GET /v1/agents` lists the fields:
+
+```bash
+curl -X POST https://agents.example.com/v1/<agent>/jobs \
+  -H "Authorization: Bearer $AGENTS_KEY" -H "Content-Type: application/json" \
+  -d '{"data": {"number": "1234567893"}, "subject_ref": "user-42"}'
+```
+
+The data you send is deleted when the job ends; only the result is kept.
+
 ### Wait for the result
 
 Call `GET links.self` every `poll_after_seconds` until `state` is no longer
@@ -130,6 +141,9 @@ so no user request waits for minutes.
 - **notices:** `level: action` means the user should choose between alternatives;
   `level: info` explains something left out.
 - **reader_version / model:** which reader and model produced this result.
+- **Lookup agents:** each source is `{"source": "<public address>", "retrieved_at": "<when>",
+  "evidence": "..."}` instead of a file. A lookup that finds nothing ends `done` with a record
+  that says so (for example section `not_found`), never `failed`.
 
 ### Sections
 

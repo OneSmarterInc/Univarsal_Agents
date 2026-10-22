@@ -12,6 +12,8 @@ from agents_service.core.models import Job
 from agents_service.core.usage import usage_report
 from agents_service.worker import runner
 
+SOURCE = {'file_index': 0, 'sha256': 'x', 'evidence': 'A'}
+
 
 def queue(services, project='a', agent='cv', n=1):
     principal = Principal('key_' + project.ljust(16, '0')[:16], project, agent)
@@ -146,7 +148,7 @@ def test_crashing_agent_fails_only_that_job(services):
         if len(calls) == 1:
             raise RuntimeError('bug')
         return AgentResult(
-            records=[{'id': 'r', 'section': 'name', 'value': 'A', 'details': {}, 'sources': []}]
+            records=[{'id': 'r', 'section': 'name', 'value': 'A', 'details': {}, 'sources': [SOURCE]}]
         )
 
     services.agents['cv'] = SlowAgent(crash_once)
@@ -229,7 +231,7 @@ def test_worker_keeps_running_when_saving_fails(services, monkeypatch):
 
 def test_a_failed_save_keeps_a_good_result_retryable(services, monkeypatch):
     (job_id,) = queue(services)
-    record = {'id': 'r', 'section': 'name', 'value': 'A', 'details': {}, 'sources': []}
+    record = {'id': 'r', 'section': 'name', 'value': 'A', 'details': {}, 'sources': [SOURCE]}
     services.agents['cv'] = SlowAgent(lambda job: AgentResult(records=[record]))
     real_finish, calls = services.jobs.finish, []
 

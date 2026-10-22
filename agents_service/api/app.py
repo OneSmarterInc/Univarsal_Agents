@@ -23,7 +23,7 @@ from agents_service.core.limits import check_rate
 from agents_service.services import build
 
 log = logging.getLogger(__name__)
-API_VERSION = '1.0'
+API_VERSION = '1.1'
 
 
 SMALL_BODY = 64 * 1024 + 1024 * 1024
@@ -50,7 +50,7 @@ def create_app(services=None):
     }
 
     app = FastAPI(
-        title='Univarsal Agents',
+        title='Universal Agents',
         version=API_VERSION,
         docs_url=None,
         redoc_url=None,

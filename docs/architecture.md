@@ -34,7 +34,7 @@ only `ai/` talks to a model; only `core/storage.py` touches disk or S3.
 | Folder | Holds |
 |---|---|
 | `api/` | `app.py` (routes built from the agent registry), `middleware.py` (request id, browser refusal, size limit, safe errors), `inputs.py` |
-| `agents/` | `base.py` (the agent contract), `registry.py` (the list), `records.py` (shared record building), one folder per agent, `_template/` |
+| `agents/` | `base.py` (the agent contract), `registry.py` (the list), `records.py` (shared record building), one folder per agent, `_template/` (file agent) and `_template_data/` (lookup agent) |
 | `ai/` | `providers.py` (Ollama/OpenAI-compatible and Anthropic, timing, cancellation), `schema.py` |
 | `documents/` | `reading.py` (PDF, Word, OCR), `isolation.py` (separate limited process), `safety.py` (upload checks), `matching.py`, `text.py` |
 | `core/` | `config.py`, `db.py`, `models.py`, `keys.py`, `jobs.py`, `storage.py`, `limits.py`, `usage.py`, `audit.py`, `errors.py` |

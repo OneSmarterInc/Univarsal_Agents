@@ -1,4 +1,4 @@
-# Univarsal Agents
+# Universal Agents
 
 Shared **extraction agents** for every OneSmarter project. A project sends a file
 to an agent with its API key; the agent reads it and returns everything it found
@@ -51,7 +51,7 @@ Full steps, including Tesseract and Ollama: [Running locally](docs/running-local
 | `agents worker [--agents cv,linkedin]` | Starts a worker (start as many as you need) |
 | `agents create-key --project P --agent A` | Makes a key (shown once) |
 | `agents list-keys` / `agents revoke-key KEY_ID` | Lists or blocks keys |
-| `agents try --agent A --key K --file F` | Sends files like a project would and prints the result |
+| `agents try --agent A --key K --file F` (or `--data '{...}'`) | Sends files (or JSON for a lookup agent) like a project would and prints the result |
 | `agents stats` | Usage per project and agent, and the waiting line |
 | `agents model-check` | Checks the model answers |
 | `agents accuracy` | Runs made-up documents through the real model and scores them |

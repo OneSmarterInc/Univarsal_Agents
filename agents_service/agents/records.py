@@ -229,3 +229,50 @@ def job_state(records, files, empty_is_answer=False):
     if not records and not empty_is_answer:
         return 'failed'
     return 'partial' if any(f['status'] == 'failed' for f in files) else 'done'
+
+
+# --- lookup (data) agents -------------------------------------------------------
+
+
+def data_record(section, details, source, retrieved_at, evidence=''):
+    """One fact from an outside source (a register, a list) for a data agent.
+
+    `source` is where it came from (a public URL, never one carrying a key);
+    `retrieved_at` is when the data was fetched or, for a published file, the
+    date it was published.
+    """
+    details = {k: v for k, v in details.items() if v is not None}
+    identity = json.dumps([section, details], sort_keys=True, ensure_ascii=False)
+    return {
+        'id': hashlib.sha256(identity.encode()).hexdigest()[:24],
+        'section': section,
+        'value': _display(details),
+        'details': details,
+        'sources': [{'source': source, 'retrieved_at': retrieved_at, 'evidence': evidence}],
+    }
+
+
+FILE_SOURCE = {'file_index': int, 'sha256': str, 'evidence': str}
+DATA_SOURCE = {'source': str, 'retrieved_at': str, 'evidence': str}
+
+
+def check_records(records, sections):
+    """Raise ValueError when an agent returns a record in the wrong shape.
+
+    Every record needs a known section, a value, details and at least one
+    source: a file source (file agents) or an outside source (data agents).
+    """
+    for record in records:
+        if set(record) != {'id', 'section', 'value', 'details', 'sources'}:
+            raise ValueError('record keys')
+        if record['section'] not in sections or not isinstance(record['details'], dict):
+            raise ValueError('record section or details')
+        if not record['sources'] or not all(_source_ok(s) for s in record['sources']):
+            raise ValueError('record sources')
+
+
+def _source_ok(source):
+    for shape in (FILE_SOURCE, DATA_SOURCE):
+        if isinstance(source, dict) and set(source) == set(shape):
+            return all(isinstance(source[k], kind) for k, kind in shape.items())
+    return False

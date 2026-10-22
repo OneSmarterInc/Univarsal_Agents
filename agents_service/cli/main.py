@@ -7,6 +7,7 @@ agents create-key --project P --agent A        make a key (shown once)
 agents list-keys [--project P]
 agents revoke-key KEY_ID
 agents try --agent A --key K --file F [...]    send files and print the result
+agents try --agent A --key K --data '{...}'    send JSON (a lookup agent) and print the result
 agents stats [--days N]                        usage and the job line
 agents model-check [--agent A]                 does the model answer?
 agents sweep                                   housekeeping now
@@ -27,7 +28,7 @@ from pathlib import Path
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog='agents', description='Univarsal Agents service commands.')
+    parser = argparse.ArgumentParser(prog='agents', description='Universal Agents service commands.')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('init-db', help='create or upgrade the database')
     serve = sub.add_parser('serve', help='start the API')
@@ -45,10 +46,13 @@ def build_parser():
     keys.add_argument('--project')
     revoke = sub.add_parser('revoke-key')
     revoke.add_argument('key_id')
-    try_cmd = sub.add_parser('try', help='send files to a running API and print the result')
+    try_cmd = sub.add_parser('try', help='send files or JSON data to a running API and print the result')
     try_cmd.add_argument('--agent', required=True)
     try_cmd.add_argument('--key', required=True)
-    try_cmd.add_argument('--file', action='append', required=True)
+    given = try_cmd.add_mutually_exclusive_group(required=True)
+    given.add_argument('--file', action='append', help='a file to upload (repeat for several)')
+    given.add_argument('--data', help='JSON data for a lookup agent, for example \'{"number": "1"}\'')
+    given.add_argument('--data-file', help='a .json file with the data for a lookup agent')
     try_cmd.add_argument('--url', default='http://127.0.0.1:8000')
     try_cmd.add_argument('--fields', default='')
     try_cmd.add_argument('--timeout', type=int, default=1800, help='seconds to wait for the result')
@@ -185,20 +189,29 @@ def model_check(services, agent_name):
 
 
 def try_agent(args):
-    """Send files like a project would, wait, and print the result JSON."""
+    """Send files or data like a project would, wait, and print the result JSON."""
     import httpx
 
-    files = []
-    for path in args.file:
-        file = Path(path)
-        if not file.is_file():
-            print(f'No such file: {path}', file=sys.stderr)
-            return 2
-        files.append(('files', (file.name, file.read_bytes(), 'application/octet-stream')))
     headers = {'Authorization': 'Bearer ' + args.key, 'Idempotency-Key': secrets.token_hex(12)}
-    data = {'fields': args.fields} if args.fields else {}
+    if args.file:
+        files = []
+        for path in args.file:
+            file = Path(path)
+            if not file.is_file():
+                print(f'No such file: {path}', file=sys.stderr)
+                return 2
+            files.append(('files', (file.name, file.read_bytes(), 'application/octet-stream')))
+        request = {'files': files, 'data': {'fields': args.fields} if args.fields else {}}
+    else:
+        try:
+            data = json.loads(Path(args.data_file).read_text() if args.data_file else args.data)
+        except (OSError, ValueError) as exc:
+            print(f'The data is not valid JSON: {exc}', file=sys.stderr)
+            return 2
+        body = {'data': data, **({'fields': args.fields} if args.fields else {})}
+        request = {'json': body}
     with httpx.Client(base_url=args.url, timeout=120, trust_env=False) as client:
-        response = client.post(f'/v1/{args.agent}/jobs', headers=headers, files=files, data=data)
+        response = client.post(f'/v1/{args.agent}/jobs', headers=headers, **request)
         if response.status_code != 202:
             print(json.dumps(response.json(), indent=2))
             return 1

@@ -16,8 +16,8 @@ PDF pages are rendered by `pypdfium2`, which pip installs; Poppler is not needed
 
 ```powershell
 cd D:\Kormic_Carrers
-git clone -b production-ready https://github.com/OneSmarterInc/Univarsal_Agents.git
-cd Univarsal_Agents
+git clone -b production-ready https://github.com/OneSmarterInc/Universal_Agents.git
+cd Universal_Agents
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -e ".[test]"
@@ -33,7 +33,18 @@ agents init-db
 agents model-check
 ```
 
-`model-check` must print `cv: OK` and `linkedin: OK`. If not, start Ollama
+`model-check` must print `cv: OK` and `linkedin: OK`.
+
+**Already set up before version 1.1?** The project is now named Universal Agents. Once:
+
+```powershell
+git remote set-url origin https://github.com/OneSmarterInc/Universal_Agents.git
+git pull
+pip install -e ".[test]"
+agents init-db
+```
+
+`init-db` adds one column to existing jobs; nothing is lost. If not, start Ollama
 (`ollama ps`) and check `AGENTS_MODEL_NAME` in `.env`.
 
 ## 3. Start it: 3 terminals

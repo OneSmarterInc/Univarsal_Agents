@@ -3,8 +3,8 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "univarsal-agents"
-version = "1.0.0"
+name = "universal-agents"
+version = "1.1.0"
 description = "Shared extraction agents (CV, LinkedIn, ...) for OneSmarter projects"
 requires-python = ">=3.12"
 dependencies = [

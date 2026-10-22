@@ -12,7 +12,7 @@ import time
 from contextlib import ExitStack
 
 from agents_service.agents.base import InputFile, JobCancelled, JobContext
-from agents_service.agents.records import job_state, notice_for
+from agents_service.agents.records import check_records, job_state, notice_for
 from agents_service.ai.providers import AIError, RequestStats, job_scope, model_config
 
 log = logging.getLogger(__name__)
@@ -141,6 +141,13 @@ def _run_agent(services, job, renewer):
         return ('failed', 'internal_error')
     if all_files_lost_model(outcome.files):
         return ('model_down', None)
+    try:
+        check_records(
+            outcome.records, getattr(agent, 'sections', None) or {r['section'] for r in outcome.records}
+        )
+    except (ValueError, KeyError, TypeError):
+        log.error('Agent %s returned records in the wrong shape; job %s failed', job.agent, job.id)
+        return ('failed', 'internal_error')
     state = job_state(
         outcome.records, outcome.files, empty_is_answer=getattr(agent, 'empty_is_answer', False)
     )
