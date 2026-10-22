@@ -12,6 +12,7 @@ AVAILABLE = {
     'linkedin': 'agents_service.agents.linkedin.agent',
     'nppes': 'agents_service.agents.nppes.agent',
     'oig': 'agents_service.agents.oig.agent',
+    'sam': 'agents_service.agents.sam.agent',
 }
 
 KEY_PREFIX = 'ua_'

@@ -440,6 +440,7 @@ JOB_ERRORS = {
     'source_unavailable': 'The outside source did not answer. Nothing was checked. Send the job again later.',
     'source_rejected': 'The outside source refused the request. Nothing was checked.',
     'source_incomplete': 'The outside source returned more matches than can be checked. Nothing was checked.',
+    'source_unreadable': "The outside source's answer could not be read safely. Nothing was checked.",
     'daily_limit_reached': "Today's limit for the outside source is used up. Nothing was checked. Send it again tomorrow.",
     'not_configured': 'This agent is not set up on the service yet. Nothing was checked.',
     'expired': 'The job waited longer than the allowed time and was not started. Send it again.',
