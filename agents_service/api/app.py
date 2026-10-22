@@ -34,6 +34,16 @@ def body_limit(rule):
     return rule.max_files * rule.max_bytes + 1024 * 1024 if rule else SMALL_BODY
 
 
+def agent_readiness(services, agent):
+    from agents_service.core.references import References
+
+    try:
+        return agent.readiness(services.settings, References(services.db, services.storage, agent.name))
+    except Exception:  # noqa: BLE001 - readiness reports, never raises
+        log.exception('Readiness check failed for agent %s', agent.name)
+        return 'unknown'
+
+
 def bearer(request):
     value = request.headers.get('authorization', '')
     if not value.startswith('Bearer '):
@@ -96,9 +106,14 @@ def create_app(services=None):
         except Exception:  # noqa: BLE001
             checks['storage'] = 'unavailable'
         ok = all(v == 'ok' for v in checks.values())
-        return JSONResponse(
-            {'status': 'ready' if ok else 'not_ready', 'checks': checks}, status_code=200 if ok else 503
-        )
+        body = {'status': 'ready' if ok else 'not_ready', 'checks': checks}
+        if ok:
+            # Shown, but never makes the whole service "not ready": one agent missing its
+            # setup must not take the other agents away from every project.
+            body['agents'] = {
+                name: agent_readiness(services, agent) for name, agent in services.agents.items()
+            }
+        return JSONResponse(body, status_code=200 if ok else 503)
 
     @app.get('/v1/agents')
     def agents(request: Request):

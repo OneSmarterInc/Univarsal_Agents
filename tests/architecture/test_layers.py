@@ -29,7 +29,7 @@ def test_core_uses_no_higher_layer():
 
 
 def test_shared_tools_use_only_core():
-    for folder in ('ai', 'documents'):
+    for folder in ('ai', 'documents', 'lookups'):
         for path in files_in(folder):
             for module in imports_of(path):
                 assert not module.startswith(
@@ -58,6 +58,13 @@ def test_only_ai_talks_to_a_model():
             continue
         text = path.read_text()
         assert 'chat/completions' not in text and 'import anthropic' not in text, path
+
+
+def test_only_lookups_call_outside_sources_from_agents():
+    """Agents call outside sources through lookups/http.py (time limits, no keys in logs)."""
+    for path in (PACKAGE / 'agents').rglob('*.py'):
+        text = path.read_text()
+        assert 'import httpx' not in text and 'import requests' not in text, path
 
 
 def test_only_storage_touches_s3():

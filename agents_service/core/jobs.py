@@ -21,6 +21,7 @@ from sqlalchemy import and_, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from agents_service.core.audit import record
+from agents_service.core.cache import delete_expired as delete_expired_cache
 from agents_service.core.errors import ServiceError
 from agents_service.core.models import Job, RateWindow
 from agents_service.core.storage import file_name
@@ -338,6 +339,7 @@ class JobLine:
             # Only finished jobs are deleted: a waiting or running job is never removed under its caller.
             s.execute(delete(Job).where(Job.expires_at < now, Job.state.in_(FINISHED)))
             s.execute(delete(RateWindow).where(RateWindow.expires_at < now))
+            delete_expired_cache(s, now)
             active = set(s.scalars(select(Job.id).where(Job.state.in_(WAITING))))
         for job_id in expired_ids + lost_ids:
             self.storage.delete_job(job_id)
@@ -433,8 +435,13 @@ class JobLine:
         return {'agents': counts, 'oldest_wait_seconds': int(time.time() - oldest) if oldest else 0}
 
 
-RETRYABLE = {'model_unavailable', 'worker_lost', 'expired'}
+RETRYABLE = {'model_unavailable', 'worker_lost', 'expired', 'source_unavailable', 'daily_limit_reached'}
 JOB_ERRORS = {
+    'source_unavailable': 'The outside source did not answer. Nothing was checked. Send the job again later.',
+    'source_rejected': 'The outside source refused the request. Nothing was checked.',
+    'source_incomplete': 'The outside source returned more matches than can be checked. Nothing was checked.',
+    'daily_limit_reached': "Today's limit for the outside source is used up. Nothing was checked. Send it again tomorrow.",
+    'not_configured': 'This agent is not set up on the service yet. Nothing was checked.',
     'expired': 'The job waited longer than the allowed time and was not started. Send it again.',
     'cancelled': 'The job was cancelled.',
     'worker_lost': 'The job was interrupted twice and was stopped. Send it again.',

@@ -11,9 +11,13 @@ import threading
 import time
 from contextlib import ExitStack
 
-from agents_service.agents.base import InputFile, JobCancelled, JobContext
+from agents_service.agents.base import InputFile, JobCancelled, JobContext, JobFailed, NotConfigured
 from agents_service.agents.records import check_records, job_state, notice_for
 from agents_service.ai.providers import AIError, RequestStats, job_scope, model_config
+from agents_service.core.cache import Cache
+from agents_service.core.jobs import JOB_ERRORS
+from agents_service.core.limits import use_daily
+from agents_service.core.references import References
 
 log = logging.getLogger(__name__)
 SWEEP_SECONDS = 60
@@ -81,6 +85,12 @@ def run_job(services, job, worker):
     kind, value = outcome
     if kind == 'model_down':
         _model_down(services, job, worker)
+    elif kind == 'retry':
+        if services.jobs.retry_later(job.id, worker):
+            log.warning('Job %s goes back to the line (%s)', job.id, value)
+            time.sleep(10)
+        else:
+            services.jobs.finish(job.id, worker, 'failed', None, value)
     elif kind == 'failed':
         services.jobs.finish(job.id, worker, 'failed', None, value)
     else:
@@ -93,7 +103,7 @@ def run_job(services, job, worker):
 
 
 def _run_agent(services, job, renewer):
-    """('done', (state, result)), ('failed', error code), ('model_down', None), or None when cancelled."""
+    """('done', (state, result)), ('failed' or 'retry', error code), ('model_down', None), or None when cancelled."""
     agent = services.agents[job.agent]
     settings = services.settings
     stats = RequestStats()
@@ -110,6 +120,7 @@ def _run_agent(services, job, renewer):
                 for item in job.inputs
             ]
             model = model_config(settings, agent.name) if agent.uses_model else None
+            load_settings = getattr(agent, 'load_settings', None)
             context = JobContext(
                 job_id=job.id,
                 project=job.project,
@@ -119,6 +130,10 @@ def _run_agent(services, job, renewer):
                 settings=settings,
                 model=model,
                 cancelled=renewer.cancelled,
+                agent_settings=load_settings(settings) if load_settings else None,
+                use_quota=lambda name, limit: use_daily(services.db, f'{agent.name}:{name}', limit),
+                cache=Cache(services.db, settings.key_pepper, agent.name),
+                references=References(services.db, services.storage, agent.name),
             )
             with job_scope(check=renewer.still_held, stats=stats):
                 outcome = agent.run(context)
@@ -126,6 +141,13 @@ def _run_agent(services, job, renewer):
     except JobCancelled:
         log.info('job stopped: id=%s (cancelled or taken over)', job.id)
         return None
+    except NotConfigured as exc:
+        log.error('Agent %s is not configured (%s); job %s failed', job.agent, exc, job.id)
+        return ('failed', 'not_configured')
+    except JobFailed as exc:
+        code = exc.code if exc.code in JOB_ERRORS else 'internal_error'
+        log.info('job failed: id=%s agent=%s code=%s', job.id, job.agent, code)
+        return ('retry' if exc.retry else 'failed', code)
     except AIError as exc:
         if exc.reason == 'cancelled':
             # Cancelled by the project (cancel() deletes the files), or the borrow was

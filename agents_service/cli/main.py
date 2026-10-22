@@ -10,6 +10,7 @@ agents try --agent A --key K --file F [...]    send files and print the result
 agents try --agent A --key K --data '{...}'    send JSON (a lookup agent) and print the result
 agents stats [--days N]                        usage and the job line
 agents model-check [--agent A]                 does the model answer?
+agents tool AGENT COMMAND [...]                an agent's own command (agents tool AGENT --help)
 agents sweep                                   housekeeping now
 agents generate-secret                         a random value for AGENTS_KEY_PEPPER
 agents check                                   lint + all tests (developers)
@@ -63,6 +64,9 @@ def build_parser():
     accuracy = sub.add_parser('accuracy', help='run made-up documents through the real model and score them')
     accuracy.add_argument('--agent', default='')
     accuracy.add_argument('--cases', default='accuracy/cases.json')
+    tool = sub.add_parser('tool', help="run an agent's own command, for example loading its reference data")
+    tool.add_argument('agent')
+    tool.add_argument('rest', nargs=argparse.REMAINDER)
     sub.add_parser('sweep', help='expire, return and delete now (workers do this every minute)')
     sub.add_parser('generate-secret', help='print a random value for AGENTS_KEY_PEPPER')
     sub.add_parser('check', help='lint and run all tests (needs the test extras)')
@@ -72,6 +76,9 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+    # httpx logs full request addresses (which can hold an API key) at INFO.
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
     if args.command == 'generate-secret':
         print(secrets.token_urlsafe(48))
         return 0
@@ -118,6 +125,8 @@ def main(argv=None):
                 indent=2,
             )
         )
+    elif args.command == 'tool':
+        return run_tool(services, args.agent, args.rest)
     elif args.command == 'sweep':
         print(json.dumps(services.jobs.sweep()))
     elif args.command == 'model-check':
@@ -148,6 +157,38 @@ def create_key(services, args):
     print(f'Key id: {key_id}')
     print(f'Key (shown only now, store it in the project backend settings): {token}')
     return 0
+
+
+def run_tool(services, agent_name, argv):
+    from agents_service.agents import registry
+    from agents_service.agents.base import NotConfigured, ToolContext
+    from agents_service.core.references import References
+
+    try:
+        agent = registry.load(agent_name)
+    except ValueError as exc:
+        print(f'Error: {exc}', file=sys.stderr)
+        return 2
+    tools = agent.tools()
+    parser = argparse.ArgumentParser(prog=f'agents tool {agent.name}')
+    commands = parser.add_subparsers(dest='tool_command', required=True)
+    for name, tool in tools.items():
+        tool.add_arguments(commands.add_parser(name, help=tool.help))
+    if not tools:
+        print(f'The {agent.name} agent has no commands.', file=sys.stderr)
+        return 2
+    args = parser.parse_args(argv)
+    try:
+        agent_settings = agent.load_settings(services.settings)
+    except NotConfigured as exc:
+        agent_settings = None
+        print(f'Note: not configured yet: {exc}', file=sys.stderr)
+    context = ToolContext(
+        settings=services.settings,
+        agent_settings=agent_settings,
+        references=References(services.db, services.storage, agent.name),
+    )
+    return tools[args.tool_command].run(context, args)
 
 
 def run_worker(services, args):

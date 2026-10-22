@@ -1,7 +1,9 @@
 """Where uploaded files wait for their job: the local disk or Amazon S3.
 
 Only this module touches stored files. Files are named ``<job id>/<index><ending>``
-and are deleted when their job ends.
+and are deleted when their job ends. Reference files of agents (for example a
+published list) are named ``ref_<agent>/<name>-<fingerprint><ending>``; the
+cleanup of old job files never touches them.
 """
 
 import os
@@ -16,11 +18,25 @@ from agents_service.core.errors import ServiceError
 
 NAME = re.compile(r'^job_[a-f0-9]{24}/\d{1,2}\.[a-z]{2,5}$')
 JOB_ID = re.compile(r'^job_[a-f0-9]{24}$')
+REFERENCE = re.compile(r'^ref_[a-z][a-z0-9_]{0,39}/[a-z][a-z0-9_]{0,39}-[a-f0-9]{16}\.[a-z]{2,5}$')
 
 
 def file_name(job_id, index, suffix):
     name = f'{job_id}/{index}{suffix}'
     if not NAME.fullmatch(name):
+        raise ServiceError('internal_error', 500)
+    return name
+
+
+def reference_name(agent, name, fingerprint, suffix):
+    stored = f'ref_{agent}/{name}-{fingerprint}{suffix}'
+    if not REFERENCE.fullmatch(stored):
+        raise ValueError('Reference names: lower case letters, digits and _; endings like .csv')
+    return stored
+
+
+def _checked_reference(name):
+    if not REFERENCE.fullmatch(name):
         raise ServiceError('internal_error', 500)
     return name
 
@@ -59,6 +75,20 @@ class LocalStorage:
             for p in self.root.iterdir()
             if JOB_ID.fullmatch(p.name) and p.is_dir() and p.stat().st_mtime < limit
         }
+
+    def put_reference(self, name, data):
+        path = self.root / _checked_reference(name)
+        path.parent.mkdir(exist_ok=True)
+        temporary = path.with_suffix(path.suffix + '.part')
+        temporary.write_bytes(data)
+        temporary.replace(path)
+
+    @contextmanager
+    def reference_copy(self, name):
+        yield self.root / _checked_reference(name)
+
+    def delete_reference(self, name):
+        (self.root / _checked_reference(name)).unlink(missing_ok=True)
 
     def check(self):
         probe = self.root / '.probe'
@@ -114,6 +144,27 @@ class S3Storage:
                 if JOB_ID.fullmatch(job_id) and item['LastModified'].timestamp() < limit:
                     found.add(job_id)
         return found
+
+    def put_reference(self, name, data):
+        try:
+            self.client.put_object(
+                Bucket=self.bucket,
+                Key=self.prefix + _checked_reference(name),
+                Body=data,
+                ServerSideEncryption='AES256',
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ServiceError('storage_unavailable', 503, True, 10) from exc
+
+    @contextmanager
+    def reference_copy(self, name):
+        with tempfile.TemporaryDirectory(prefix='agents-ref-') as directory:
+            path = Path(directory) / name.split('/')[-1]
+            self.client.download_file(self.bucket, self.prefix + _checked_reference(name), str(path))
+            yield path
+
+    def delete_reference(self, name):
+        self.client.delete_object(Bucket=self.bucket, Key=self.prefix + _checked_reference(name))
 
     def check(self):
         self.client.head_bucket(Bucket=self.bucket)

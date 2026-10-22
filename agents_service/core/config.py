@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     # gets that provider's default limits unless it sets them.
     model_overrides: dict[str, dict] = {}
 
+    # Agents' own settings come from AGENTS_<AGENT>_<FIELD>, for example
+    # AGENTS_SAM_API_KEY. This field replaces them all for one agent (tests).
+    agent_settings: dict[str, dict] = {}
+
     # Reading.
     tesseract_cmd: str = ''
     # Read every file in a separate, limited process (recommended).

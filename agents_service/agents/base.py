@@ -6,12 +6,13 @@ docs are built from these definitions, so adding an agent needs no change
 anywhere else. See docs/adding-an-agent.md.
 """
 
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from agents_service.documents.safety import check_file
 
@@ -53,6 +54,15 @@ class JobContext:
     #: services call it between steps and stop with JobCancelled; model requests
     #: check it on their own.
     cancelled: Callable[[], bool] = lambda: False
+    #: The agent's own settings (its settings_model), or None.
+    agent_settings: BaseModel | None = None
+    #: use_quota(name, limit_per_day) -> True when one more call is allowed today.
+    #: Shared by every worker on every server (it counts in the database).
+    use_quota: Callable[[str, int], bool] = lambda name, limit: True
+    #: A shared cache for answers from outside sources (see core/cache.py), or None.
+    cache: object = None
+    #: Reference data loaded with `agents tool` (see core/references.py), or None.
+    references: object = None
 
     def check_cancelled(self):
         if self.cancelled():
@@ -61,6 +71,36 @@ class JobContext:
 
 class JobCancelled(Exception):
     """The job was cancelled while it ran; nothing is saved."""
+
+
+class JobFailed(Exception):
+    """End the job as failed with one of the job error codes (core/jobs.py JOB_ERRORS).
+
+    ``retry=True`` puts the job back in the line once (for example an outside
+    source that did not answer); a second failure ends it with this code.
+    """
+
+    def __init__(self, code, retry=False):
+        super().__init__(code)
+        self.code, self.retry = code, retry
+
+
+@dataclass
+class Tool:
+    """A command an agent adds to the CLI: ``agents tool <agent> <name> ...``."""
+
+    help: str
+    #: add_arguments(argparse.ArgumentParser)
+    add_arguments: Callable
+    #: run(context: ToolContext, args) -> int (the exit code)
+    run: Callable
+
+
+@dataclass
+class ToolContext:
+    settings: object
+    agent_settings: BaseModel | None
+    references: object  # core.references.References for this agent
 
 
 @dataclass
@@ -90,6 +130,39 @@ class Agent(ABC):
     #: True when "no records" is a normal answer (a lookup that found nothing),
     #: so the job ends "done". False for readers, where it means a failure.
     empty_is_answer: bool = False
+    #: The agent's own settings, read from AGENTS_<NAME>_<FIELD> environment
+    #: variables (or .env). A pydantic model; None when the agent has none.
+    settings_model: type[BaseModel] | None = None
+
+    def load_settings(self, settings):
+        """The agent's own settings. Raises NotConfigured when they are missing or wrong.
+
+        Values come from AGENTS_<NAME>_<FIELD> (environment first, then .env),
+        or, in tests, from Settings.agent_settings[<name>].
+        """
+        if self.settings_model is None:
+            return None
+        given = getattr(settings, 'agent_settings', {}).get(self.name)
+        if given is None:
+            given = _prefixed(f'AGENTS_{self.name.upper()}_')
+        try:
+            return self.settings_model.model_validate(given)
+        except ValidationError as exc:
+            fields = sorted({'.'.join(map(str, e['loc'])) for e in exc.errors(include_input=False)})
+            prefix = f'AGENTS_{self.name.upper()}_'
+            raise NotConfigured(', '.join(prefix + f.upper() for f in fields)) from None
+
+    def tools(self) -> dict[str, Tool]:
+        """CLI commands of this agent, {name: Tool}. Most agents have none."""
+        return {}
+
+    def readiness(self, settings, references) -> str:
+        """'ok', or a short reason the agent cannot work yet (shown in /health/ready)."""
+        try:
+            self.load_settings(settings)
+        except NotConfigured as exc:
+            return f'not configured: {exc}'
+        return 'ok'
 
     def file_rule(self, settings) -> FileRule | None:
         """The accepted files. Override when a limit comes from a setting."""
@@ -126,3 +199,18 @@ class Agent(ABC):
     @abstractmethod
     def run(self, job: JobContext) -> AgentResult:
         """Read the inputs and return the records found."""
+
+
+class NotConfigured(Exception):
+    """An agent's own settings are missing or wrong. The message names the settings, never values."""
+
+
+def _prefixed(prefix):
+    """{field: value} from environment variables (and .env) starting with prefix; environment wins."""
+    from dotenv import dotenv_values
+
+    values = {}
+    if Path('.env').is_file():
+        values.update({k: v for k, v in dotenv_values('.env').items() if v is not None})
+    values.update(os.environ)
+    return {k[len(prefix) :].lower(): v for k, v in values.items() if k.upper().startswith(prefix)}

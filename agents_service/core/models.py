@@ -86,6 +86,31 @@ class Usage(Base):
     wait_seconds = Column(Float, nullable=False, default=0)
 
 
+class LookupCache(Base):
+    """Answers from outside sources, kept for a short time. The id is a keyed hash of the question."""
+
+    __tablename__ = 'lookup_cache'
+    id = Column(String(64), primary_key=True)
+    agent = Column(String(40), nullable=False)
+    value = Column(JSON, nullable=False)
+    expires_at = Column(Float, nullable=False, index=True)
+
+
+class ReferenceData(Base):
+    """The current reference file of an agent (for example a monthly published list)."""
+
+    __tablename__ = 'reference_data'
+    agent = Column(String(40), primary_key=True)
+    name = Column(String(40), primary_key=True)
+    stored = Column(String(200), nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    size = Column(Integer, nullable=False)
+    # The date the publisher gave the data (not when it was loaded), YYYY-MM-DD.
+    as_of = Column(String(10), nullable=False)
+    loaded_at = Column(Float, nullable=False)
+    details = Column(JSON, nullable=False, default=dict)
+
+
 class AuditEvent(Base):
     """Who did what with which key. Never holds file content."""
 
