@@ -326,7 +326,7 @@ def test_sam_through_the_service(tmp_path, monkeypatch):
         return page(PERSON) if 'amara' in kwargs['params']['exclusionName'] else page()
 
     monkeypatch.setattr(sam_agent, 'get_json', fake_get_json)
-    services = build(make_settings(tmp_path, enabled_agents='cv,sam'))
+    services = build(make_settings(tmp_path, enabled_agents='cv,sam', agent_settings={'sam': {}}))
     services.db.upgrade()
     client = TestClient(create_app(services))
     assert client.get('/health/ready').json()['agents']['sam'] == 'needs setup'
