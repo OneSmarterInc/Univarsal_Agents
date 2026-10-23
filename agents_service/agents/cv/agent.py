@@ -1,7 +1,7 @@
 """CV agent: reads one CV (PDF or Word) and returns every fact quoted from it."""
 
 from agents_service.agents.base import MB, Agent, AgentResult, FileRule, JobContext
-from agents_service.agents.cv.cleanup import clean_summary_variants, tidy
+from agents_service.agents.cv.cleanup import clean_summary_variants, tidy, tidy_scalars
 from agents_service.agents.cv.evidence import supported_owners, supported_resume, supported_variants
 from agents_service.agents.cv.local_reader import extract_local_resume
 from agents_service.agents.cv.schemas import ResumeFacts
@@ -54,6 +54,7 @@ def checked_facts(response, source, warnings):
             remaining = variants.pop('summary')
             if remaining and not data.get('summary'):
                 data['summary'] = remaining[0]['value']
+    tidy_scalars(data, variants, source)
     if owners is not None:
         # Every possible owner name is returned; the project decides.
         data['name'] = owners
@@ -78,7 +79,7 @@ class CvAgent(Agent):
         'education', 'work_experience_entries', 'projects', 'publications',
         'certifications', 'awards', 'volunteering', 'skills', 'languages', 'other_information',
     )  # fmt: skip
-    reader_version = 'cv/7'
+    reader_version = 'cv/8'
 
     def file_rule(self, settings):
         return FileRule(

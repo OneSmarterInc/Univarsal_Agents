@@ -157,3 +157,85 @@ def tidy(data):
     if isinstance(data.get('skills'), list):
         data['skills'] = split_skills(data['skills'])
     return data
+
+
+# --- contact details, graduation year and institution ------------------------------------
+
+# An email in the text, without OCR junk stuck to its front ("_name@example.com").
+EMAIL = re.compile(r'[A-Za-z0-9][A-Za-z0-9.+-]*@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+')
+TOP_CHARS = 1500
+# Icons read as text in front of a phone number or a place ("& 8010784202", "9 Mehkar").
+PHONE_START = re.compile(r'^[^\d+(]+')
+ICON_TOKEN = re.compile(r'^(?:[^\w\s(]{1,2}|\d)\s+(?=[^\W\d_])')
+STREET_WORDS = re.compile(
+    r'\b(?:road|rd|street|st|lane|nagar|colony|sector|flat|house|plot|no|ward|block)\b', re.I
+)
+GRADUATION_CUE = re.compile(r'graduat|expected|batch|class of|passing|pass(?:ed)? out|completion', re.I)
+DEGREE_LEVEL = re.compile(
+    r'bachelor|master|b\.?\s?(?:e|tech|sc|com|a|ca|ba)\b|m\.?\s?(?:e|tech|sc|ba|ca)\b|diploma|ph\.?d', re.I
+)
+
+
+def email_from_document(source):
+    """The first email near the top of the CV, as written there; None when there is none."""
+    found = EMAIL.search(source[:TOP_CHARS])
+    return found.group() if found else None
+
+
+def clean_phone(value):
+    if not isinstance(value, str):
+        return value
+    cleaned = PHONE_START.sub('', value).strip()
+    return cleaned if re.search(r'\d{6}', re.sub(r'\D', '', cleaned)) else value
+
+
+def clean_location(value):
+    if not isinstance(value, str) or STREET_WORDS.search(value):
+        return value
+    cleaned = ICON_TOKEN.sub('', value.strip(), count=1)
+    return cleaned or value
+
+
+def _graduation_year_ok(year, education, source):
+    """A graduation year is kept when the CV ties it to finishing a degree: the end year of
+    a degree entry, or a line that says so ("Expected graduation 2027", "Batch of 2026")."""
+    text = str(year)
+    for entry in education or []:
+        if DEGREE_LEVEL.search(entry.get('title') or '') and text in str(entry.get('end_date') or ''):
+            return True
+    return any(GRADUATION_CUE.search(line) for line in source.split('\n') if re.search(rf'\b{text}\b', line))
+
+
+def _institution_ok(value, education):
+    """An institution names a school, or is the school of an education entry."""
+    from agents_service.agents.cv.source_education import names_institution
+
+    organizations = {_key(entry.get('organization')) for entry in education or []}
+    return bool(value) and (names_institution(str(value)) or _key(str(value)) in organizations)
+
+
+def tidy_scalars(data, variants, source):
+    """Contact details, graduation year and institution, checked against the rules above.
+
+    data holds single values; variants holds the alternatives still to choose from
+    ({field: [{'value', 'evidence'}, ...]}). Both are changed in place.
+    """
+    if not data.get('email') and 'email' not in variants:
+        data['email'] = email_from_document(source)
+    data['phone'] = clean_phone(data.get('phone'))
+    data['location'] = clean_location(data.get('location'))
+    checks = {
+        'graduation_year': lambda value: _graduation_year_ok(value, data.get('education'), source),
+        'institution': lambda value: _institution_ok(value, data.get('education')),
+    }
+    for field, ok in checks.items():
+        if data.get(field) is not None and not ok(data[field]):
+            data[field] = None
+        if field in variants:
+            variants[field] = [entry for entry in variants[field] if ok(entry['value'])]
+            if len(variants[field]) < 2:
+                # One left is the value, with nothing to choose between; none left is no value.
+                remaining = variants.pop(field)
+                if remaining and data.get(field) is None:
+                    data[field] = remaining[0]['value']
+    return data, variants

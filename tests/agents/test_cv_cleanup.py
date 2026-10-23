@@ -127,3 +127,71 @@ def test_skill_lines_become_one_skill_each():
         'C/C++',
         'Python (basics)',
     ]
+
+
+# --- contact details, graduation year, institution (1.3.3) -------------------------------
+
+from agents_service.agents.cv.cleanup import (  # noqa: E402
+    clean_location,
+    clean_phone,
+    email_from_document,
+    tidy_scalars,
+)
+
+
+def test_email_from_the_document_without_ocr_junk_in_front():
+    source = 'RIYA EXAMPLE\n& 5550100200 &% _riya.example5@example.com 9 Exampletown.State'
+    assert email_from_document(source) == 'riya.example5@example.com'
+    data, variants = tidy_scalars({'email': None, 'education': []}, {}, source)
+    assert data['email'] == 'riya.example5@example.com'
+    assert email_from_document('RIYA EXAMPLE\nNo contact line') is None
+
+
+def test_icons_in_front_of_a_phone_or_a_place_are_dropped():
+    assert clean_phone('& 5550100200') == '5550100200'
+    assert clean_phone('+91 5550100200') == '+91 5550100200'
+    assert clean_location('9 Exampletown.State') == 'Exampletown.State'
+    assert clean_location('© Exampletown, State') == 'Exampletown, State'
+    assert clean_location('9 Example Road, Exampletown') == '9 Example Road, Exampletown'
+
+
+EDUCATION = [
+    {'title': 'BE, Information Technology', 'organization': 'Example College', 'end_date': '2028'},
+    {'title': 'HSC', 'organization': 'Example Junior College', 'end_date': '2024'},
+]
+
+
+def test_a_graduation_year_needs_a_degree_end_or_a_line_that_says_so():
+    source = 'Intern Aug 2025 – Nov 2025\nBE, Information Technology June 2024 – 2028'
+    assert (
+        tidy_scalars({'graduation_year': 2028, 'education': EDUCATION}, {}, source)[0]['graduation_year']
+        == 2028
+    )
+    assert (
+        tidy_scalars({'graduation_year': 2025, 'education': EDUCATION}, {}, source)[0]['graduation_year']
+        is None
+    )
+    cue = 'Expected graduation: 2027'
+    assert tidy_scalars({'graduation_year': 2027, 'education': []}, {}, cue)[0]['graduation_year'] == 2027
+    # HSC is not a degree: its year is not a graduation year.
+    assert (
+        tidy_scalars({'graduation_year': 2024, 'education': EDUCATION}, {}, source)[0]['graduation_year']
+        is None
+    )
+
+
+def test_an_institution_must_be_a_school():
+    data, variants = tidy_scalars(
+        {'institution': None, 'education': EDUCATION},
+        {
+            'institution': [
+                {'value': 'Example Society Pune Chapter', 'evidence': 'x'},
+                {'value': 'Example College of Engineering, Exampletown', 'evidence': 'y'},
+            ]
+        },
+        '',
+    )
+    assert data['institution'] == 'Example College of Engineering, Exampletown'
+    assert 'institution' not in variants
+    place = tidy_scalars({'institution': 'Exampletown, State, India', 'education': []}, {}, '')[0]
+    assert place['institution'] is None

@@ -73,19 +73,18 @@ agents try --agent linkedin --key <linkedin key> --file shot1.png --file shot2.p
 
 `try` uploads, waits and prints the result JSON a project would get.
 
-**Level 1b: the lookup agents (NPPES, OIG, SAM)**
+**Level 1b: the lookup agents (NPPES, OIG, SAM, GitHub)**
 
-They are on branch `lookup-agents` until it is merged into `production-ready`:
+They are on `production-ready` (version 1.2.0 and later). After a pull:
 
 ```powershell
-git fetch origin
-git switch lookup-agents
+git pull
 pip install -e ".[test]"
 agents init-db
 ```
 
 `init-db` adds two tables (an answer cache and reference files); nothing is lost. Add
-`nppes,oig,sam` to `AGENTS_ENABLED_AGENTS` in `.env` and restart. PowerShell changes quotes
+`nppes,oig,sam,github` to `AGENTS_ENABLED_AGENTS` in `.env` and restart. PowerShell changes quotes
 inside `--data '...'`, so put the JSON in a UTF-8 file and use `--data-file`:
 
 ```powershell
@@ -110,7 +109,9 @@ access tokens → Fine-grained, "Public repositories" only). Add `github` to
 agents create-key --project test --agent github
 Set-Content -Encoding utf8 gh.json '{"github": "https://github.com/octocat"}'
 agents try --agent github --key <github key> --data-file gh.json
-``` Details: [Lookup agents](lookup-agents.md).
+```
+
+Details: [Lookup agents](lookup-agents.md).
 
 **Level 2: several projects at once**
 

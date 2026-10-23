@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.3 — contact details, graduation year and institution (October 2026)
+
+From the same laptop re-run (reader cv/6). Every value is still a copy of the document's text.
+
+- **Email read from the document (reader cv/8)** when the model's is missing or refused,
+  from the top of the CV; OCR junk stuck to its front ("_name@…") is not part of it. An
+  email broken across two lines is still not read, since a joined email is not a copy.
+- **Icons in front of a phone number or a place are dropped:** "& 8010784202" is
+  "8010784202", "9 Exampletown" is "Exampletown" (a house number before a road name stays).
+- **A graduation year is kept only when the CV ties it to finishing a degree:** the end
+  year of a degree entry, or a line such as "Expected graduation 2027". Other years the
+  model picked (an internship, the HSC) are left out.
+- **An institution must name a school** or be the school of an education entry; a place
+  ("Shegaon, Maharashtra, India") or a society chapter is left out. When one alternative is
+  left, it is the value, with no choice to make.
+- `docs/running-locally.md` no longer says the lookup agents are on the `lookup-agents` branch.
+
 ## 1.3.2 — clean-up of the small model's repeats (October 2026)
 
 From the laptop re-run of 7 student CVs with Qwen3 1.7B (reader cv/6): every CV finished on
