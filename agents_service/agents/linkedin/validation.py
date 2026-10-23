@@ -131,7 +131,7 @@ SKILL_UI = re.compile(
     r'^(?:home|my network|messaging|notifications?|jobs|search|follow|'
     r'tools & technologies|promoted\W*|[a-z]\s+(?:follow|search))$|'
     r'\bfollow\b|\bget the latest jobs\b|\balso follow\b|'
-    r'linkedin|©|\bin\s*\(\d+\)',
+    r'linkedin|©|\bin\s*\(\d+\)|^\W*\+?\d+\s+skills?\W*$',
     re.I,
 )
 

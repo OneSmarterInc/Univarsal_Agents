@@ -197,6 +197,15 @@ def extract_local(source, config):
         current = merged[field]
         if not current or (field == 'headline' and canonical(current['value']) in canonical(found['value'])):
             merged[field] = found
+    # The About text under its heading, when the model returned none. A badge count
+    # read by OCR next to the heading ("About / 2") is not part of it.
+    about = literal.get('about')
+    if not merged['about'] and about:
+        value = re.sub(r'^(?:\W*\w{0,2}\W*\n)+', '', about['value'].strip()).strip()
+        # The shown part ends at the first blank line, or at LinkedIn's "... more".
+        value = re.split(r'\n\s*\n|(?:\.{2,}|…)\s*more\b', value, maxsplit=1)[0].strip()
+        if len(value) >= 40:
+            merged['about'] = {'value': value, 'evidence': about['evidence']}
     # The mobile "top skills" page lists each skill on its own line: read those lines
     # as written, as well as what the model found. Each is still checked below.
     known = {canonical(skill['name']) for skill in merged['skills']}

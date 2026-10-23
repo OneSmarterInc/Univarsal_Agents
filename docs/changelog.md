@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.7 — LinkedIn: skill counts and About (October 2026)
+
+From the second live LinkedIn run (reader `linkedin/5`).
+
+- **"+7 skills" is not a skill:** LinkedIn's count of hidden skills is left out.
+- **About read from its heading** when the model returns none: a badge number read next
+  to the heading ("About / 2") is left out, and the text ends at the first blank line or at
+  LinkedIn's "... more", so the posts below it are never part of it.
+
 ## 1.3.6 — LinkedIn screenshots of one's own profile (October 2026)
 
 From the live LinkedIn test on the laptop (5 screenshots). Reader `linkedin/5`.

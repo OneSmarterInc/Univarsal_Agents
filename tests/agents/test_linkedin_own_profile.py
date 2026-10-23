@@ -125,3 +125,17 @@ def test_a_small_screenshot_is_enlarged_before_ocr():
         reading.ocr(Image.new('RGB', (800, 600), 'white'))
         reading.ocr(Image.new('RGB', (2400, 1200), 'white'))
     assert sizes == [(1600, 1200), (2400, 1200)]
+
+
+def test_a_skills_count_is_not_a_skill_and_about_has_no_badge_number():
+    from agents_service.agents.linkedin.validation import SKILL_UI
+
+    assert SKILL_UI.search('+7 skills') and not SKILL_UI.search('Python')
+    source = (
+        'About\n\n2\n\nI am a third-year Example Technology student at Example College, graduating in 2028.'
+        '\n\nActivity\n2,196 followers'
+    )
+    found = literal_observation(source)['about']['value']
+    import re
+
+    assert re.sub(r'^(?:\W*\w{0,2}\W*\n)+', '', found.strip()).startswith('I am a third-year')
