@@ -99,7 +99,18 @@ agents try --agent oig --key <oig key> --data-file person.json
 ```
 
 SAM needs `AGENTS_SAM_API_KEY` in `.env`, and a free key allows only 10 calls a day: plan
-the tests first. Details: [Lookup agents](lookup-agents.md).
+the tests first.
+
+GitHub works without a key (60 calls an hour, about 25 jobs); for more, put a token with
+no scopes in `AGENTS_GITHUB_TOKEN` (github.com → Settings → Developer settings → Personal
+access tokens → Fine-grained, "Public repositories" only). Add `github` to
+`AGENTS_ENABLED_AGENTS`, then:
+
+```powershell
+agents create-key --project test --agent github
+Set-Content -Encoding utf8 gh.json '{"github": "https://github.com/octocat"}'
+agents try --agent github --key <github key> --data-file gh.json
+``` Details: [Lookup agents](lookup-agents.md).
 
 **Level 2: several projects at once**
 

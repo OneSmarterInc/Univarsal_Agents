@@ -13,6 +13,7 @@ AVAILABLE = {
     'nppes': 'agents_service.agents.nppes.agent',
     'oig': 'agents_service.agents.oig.agent',
     'sam': 'agents_service.agents.sam.agent',
+    'github': 'agents_service.agents.github.agent',
 }
 
 KEY_PREFIX = 'ua_'

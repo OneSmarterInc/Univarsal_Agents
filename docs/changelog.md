@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0 — GitHub agent (October 2026)
+
+- **GitHub agent** (`/v1/github/jobs`, keys `ua_gh_...`): reads a public GitHub account
+  from a username or any github.com link. Profile (as typed by the holder,
+  `self_attested`), account age, original and forked repositories, languages by
+  repository, stars on original work, last push, and up to 25 original repositories.
+  No model is used. Ported from kormic-agents (github.py).
+- **Proof of ownership** as its own record (`github_ownership`): the person's own token
+  (used once, never stored) or a code in a public gist. The project decides what an
+  unproved account means; the facts about the account are never lowered for it.
+- Optional server token (`AGENTS_GITHUB_TOKEN`), shared daily limit, 24 h cache of public
+  data (never of ownership or tokens). Outside calls go only to `api.github.com`.
+
 ## 1.2.6 — fixes from 7 more student CVs (October 2026)
 
 - **CV (reader cv/5):** projects written as a title and bullets, with no date, are read

@@ -146,7 +146,9 @@ so no user request waits for minutes.
     `name_only_search`, `listed_record` (one listed record), `more_records`, `waiver`,
     `check_possible_match` and `confirm_match` (action), `mapping_unchecked` (SAM),
     `list_out_of_date` (OIG), `npi_not_found`, `organisation_npi`, `npi_deactivated`,
-    `unchecked_licences` (NPPES). `excluded` never appears on a lookup result.
+    `unchecked_licences` (NPPES), `account_not_found`, `ownership_not_proved` (action),
+    `organisation_account`, `only_forks`, `more_repositories`, `username_case`,
+    `no_server_token` (GitHub). `excluded` never appears on a lookup result.
 - **reader_version / model:** which reader and model produced this result.
 - **Lookup agents:** each source is `{"source": "<public address>", "retrieved_at": "<when>",
   "evidence": "..."}` instead of a file. A lookup that finds nothing ends `done` with a record
@@ -161,8 +163,9 @@ so no user request waits for minutes.
 | NPPES | npi, full_name, npi_status, npi_type, npi_enumerated_on, credential, taxonomy, practice_state, former_name, claimed_registration |
 | OIG | oig_exclusion |
 | SAM | sam_exclusion |
+| GitHub | github_account, github_profile, github_activity, github_repository, github_ownership |
 
-The lookup agents (NPPES, OIG, SAM), their input and what their answers mean:
+The lookup agents (NPPES, OIG, SAM, GitHub), their input and what their answers mean:
 [Lookup agents](lookup-agents.md).
 
 ## 4. Errors

@@ -1,4 +1,4 @@
-# Lookup agents: NPPES, OIG and SAM
+# Lookup agents: NPPES, OIG, SAM and GitHub
 
 These agents take JSON instead of files and look a person up in an outside source.
 They call no model. Each answer says how each fact is known (`details.method`), and
@@ -9,6 +9,7 @@ a list search (`details.shape: screens`) never says "clear".
 | `nppes` | CMS NPI registry (live API) | The NPI's status, type, issue date, name; what the provider typed in (credential, taxonomy, licence numbers) | Nothing |
 | `oig` | HHS-OIG exclusion list (LEIE, a monthly CSV) | `no_match`, `possible_match` or `match` against US federal healthcare exclusions | The list, loaded by an operator |
 | `sam` | SAM.gov exclusions (live API) | The same three outcomes against US federal contracting exclusions | A SAM.gov API key |
+| `github` | GitHub (live API) | A public account: profile, repositories, languages, activity, and whether it is proved to be the person's | Nothing (a token for more than 60 calls an hour) |
 
 The project decides what an answer means for its person: the agents never compare a
 name with a profile, and a `possible_match` always needs a person to check it.
@@ -16,7 +17,7 @@ name with a profile, and a `possible_match` always needs a person to check it.
 ## Switch them on
 
 ```
-AGENTS_ENABLED_AGENTS=cv,linkedin,nppes,oig,sam
+AGENTS_ENABLED_AGENTS=cv,linkedin,nppes,oig,sam,github
 ```
 
 Give keys to the projects that need them (`agents create-key --project kormic --agent oig`).
@@ -25,7 +26,7 @@ takes minutes):
 
 ```
 agents worker --agents cv,linkedin
-agents worker --agents nppes,oig,sam
+agents worker --agents nppes,oig,sam,github
 ```
 
 `GET /health/ready` (no key needed) shows each agent as `ok` or `needs setup`. The
@@ -122,6 +123,40 @@ every answer says the mapping is unchecked.
 SAM fails closed: an answer it cannot read safely, more matches than it can read, a
 refused key or a used-up daily limit end the job with an error code, never `no_match`.
 
+## GitHub
+
+```
+AGENTS_GITHUB_TOKEN=            # optional: a token with no scopes (5,000 calls an hour, not 60)
+AGENTS_GITHUB_DAILY_LIMIT=4000  # calls per day shared by every worker (a job makes 2 to 4)
+AGENTS_GITHUB_CACHE_HOURS=24    # public account data is reused this long; ownership never
+AGENTS_GITHUB_MAX_REPOS=100     # repositories read per account, most recently pushed first
+```
+
+```
+agents try --agent github --key <key> --data '{"github": "https://github.com/octocat"}'
+```
+
+Input: `github` (a username or any github.com link to the account), and optionally one
+proof that the account is the person's:
+
+- `oauth_token`: the person's own token from the project's "Connect GitHub" sign-in (any
+  scope, or none). GitHub says whose it is. It is used for one call, deleted with the job
+  input and never stored, cached or logged.
+- `proof_challenge`: a code of 12–100 letters, digits, `-` or `_` the project gave the person
+  to put in a public gist (its description, a file name or its text).
+
+| Section | Holds | `method` |
+|---|---|---|
+| `github_account` | `found`, username, type (user or organisation), id, url, created on | `primary_source` |
+| `github_profile` | name, bio, company, location, blog: typed in by the account holder | `self_attested` |
+| `github_activity` | repositories read, original and forked, stars on original work, languages by repository share, last push, followers | `primary_source` |
+| `github_repository` | one per original repository (up to 25, most recently pushed first): name, url, language, stars, forks, dates, description, topics | `primary_source` |
+| `github_ownership` | `proved_oauth`, `proved_gist` or `not_proved`, how, and the reason | `primary_source` when proved |
+
+A username GitHub does not know ends `done` with one `github_account` record, `found: false`.
+Forks are counted but never shown as own work. Private repositories are never read. The
+agent does not judge the person or the work: the project does.
+
 ## Job errors of lookup agents
 
 | code | Means | Retry? |
@@ -141,4 +176,4 @@ search took 65 s instead of 2 s on an office laptop). Set it to `false` only on 
 with IPv6 and no IPv4.
 
 Workers that run lookup agents need HTTPS out to `npiregistry.cms.hhs.gov` (NPPES) and
-`api.sam.gov` (SAM). OIG makes no outside calls.
+`api.sam.gov` (SAM) and `api.github.com` (GitHub). OIG makes no outside calls.

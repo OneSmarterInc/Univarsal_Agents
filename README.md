@@ -13,9 +13,10 @@ person's profile).
 | NPPES | A US NPI number, looked up at CMS | `/v1/nppes/jobs` |
 | OIG | A person, screened against the HHS-OIG exclusion list | `/v1/oig/jobs` |
 | SAM | A person, screened against SAM.gov exclusions | `/v1/sam/jobs` |
+| GitHub | A GitHub username: profile, repositories, languages, activity, proof of ownership | `/v1/github/jobs` |
 | More agents | Add a folder (see [Adding an agent](docs/adding-an-agent.md)) | `/v1/<name>/jobs` |
 
-CV and LinkedIn are on by default; NPPES, OIG and SAM are switched on with
+CV and LinkedIn are on by default; NPPES, OIG, SAM and GitHub are switched on with
 `AGENTS_ENABLED_AGENTS` (see [Lookup agents](docs/lookup-agents.md)).
 
 - **Keys:** each project gets its own key for each agent it uses. A CV key works only on the CV agent.
@@ -72,7 +73,7 @@ agents_service/   the service (api, agents, ai, documents, core, worker, cli)
 tests/            all tests (agents check)
 accuracy/         made-up documents with expected answers
 docs/             guides and decisions
-legacy/           the October pilot, kept for reference (GitHub agent comes back in phase 4)
+legacy/           the October pilot, kept for reference
 ```
 
 All code is OneSmarter code; see [OWNERSHIP.md](OWNERSHIP.md).
