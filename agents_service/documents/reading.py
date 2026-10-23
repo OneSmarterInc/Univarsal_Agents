@@ -472,16 +472,50 @@ def _docx_text(path):
         return '\n'.join(chunks)
 
 
+OCR_WORD = re.compile(r'[0-9a-z]{2,}')
+# An OCR line whose words the text layer mostly has already is a noisy copy of it
+# ("+ Java" for "• Java", "Al-Powered" for "AI-Powered"), not new text.
+OCR_KNOWN_SHARE = 0.6
+
+
+def _compact(text):
+    return re.sub(r'[^0-9a-z]', '', canonical(text))
+
+
 def _with_ocr_lines(text, image_text):
-    """Selectable text plus the OCR lines it does not already contain."""
+    """Selectable text plus the OCR lines it does not already contain.
+
+    A page with pictures is read by OCR as well, so text inside the pictures is
+    not lost. OCR also reads the page's own text again, with small errors; such a
+    line is left out when the text layer already holds most of its words.
+    """
     seen = {canonical(line) for line in text.splitlines() if line.strip()}
+    compact_text = _compact(text)
+    known_words = set(OCR_WORD.findall(canonical(text)))
     extra = []
     for line in image_text.splitlines():
         key = canonical(line)
-        if key and key not in seen:
-            extra.append(line)
-            seen.add(key)
-    return text + '\n' + '\n'.join(extra)
+        if not key or key in seen:
+            continue
+        compact = _compact(line)
+        # Too little to be text ("0", "e"), unless a short name ("Go", "C++") or a
+        # number such as a year range or a postcode ("2024-2028", "444203").
+        if (
+            len(re.findall(r'[^\W\d_]', key)) < 2
+            and not re.search(r'[+#]', key)
+            and len(re.findall(r'\d', key)) < 4
+        ):
+            continue
+        # A long line found whole in the text layer is a copy; a short word inside a
+        # longer one ("java" in "javascript") is not.
+        if len(compact) >= 12 and compact in compact_text:
+            continue
+        words = re.findall(r'[0-9a-z]{2,}', key)
+        if known_words and words and sum(w in known_words for w in words) / len(words) >= OCR_KNOWN_SHARE:
+            continue
+        extra.append(line)
+        seen.add(key)
+    return text + '\n' + '\n'.join(extra) if extra else text
 
 
 def _ocr_page(pdf, index, text):

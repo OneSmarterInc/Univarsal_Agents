@@ -239,9 +239,46 @@ class _Degree:
 DEGREE = _Degree()
 INSTITUTION = re.compile(
     r'\b(?:University|College|Institute|School|Academy|Polytechnic|Universit[éy]|(?:State|Education) Board|'
-    r'Board of (?:Secondary|Higher Secondary|School) Education)\b',
+    r'Board of (?:Secondary|Higher Secondary|School) Education|Vidyalaya?|Mahavidyalaya|Vidya Mandir|'
+    r'Vidyapeeth|Dhyanpeeth|Gurukul)\b',
     re.I,
 )
+
+
+def names_institution(text):
+    """True when text names a school or college ("Secondary School" in a degree name does not count)."""
+    return bool(INSTITUTION.search(_DEGREE_WORDS.sub(' ', text)))
+
+
+# Where a degree ends and its school starts on one line: "HSC 73.50 % Model Junior College",
+# "B.E (IT) 8.56 SGPA Shri Sant ... College", "SSC-(91.16%)Sahakar Vidya Mandir",
+# "HSC — Shri Shivaji Junior College", "Bachelor of Engineering in IT at Shri Sant ... College".
+GRADE_BREAK = re.compile(r'\s*[-–—(]*\s*\d{1,3}(?:\.\d+)?\s*(?:%|SGPA|CGPA|GPA)\s*\)?\s*')
+DEGREE_SCHOOL_BREAK = re.compile(GRADE_BREAK.pattern + r'|\s+(?:at|from)\s+|\s+[–—-]\s+|\s*[–—]\s*')
+CONTINUES = re.compile(r'\b(?:of|and|for|&)$', re.I)
+
+
+def split_degree_school(text, grade_only=False):
+    """(degree, school) for a part naming both, else (text, None).
+
+    With grade_only, the part is split only after a grade ("HSC 86.91% Sane Guruji Vidyalay"),
+    so "Bachelor of Engineering – Information Technology" stays whole.
+    """
+    for match in (GRADE_BREAK if grade_only else DEGREE_SCHOOL_BREAK).finditer(text):
+        title = text[: match.start()].strip(' -–—:(')
+        school = text[match.end() :].strip(' -–—:)')
+        school = (
+            school[: date_candidates(school)[0].start()].rstrip(' -–—:,(')
+            if date_candidates(school)
+            else school
+        )
+        if not (title and DEGREE.search(title) and school and re.search(r'[^\W\d_]{3}', school)):
+            continue
+        if grade_only or names_institution(school):
+            return title, school
+    return text, None
+
+
 EDUCATION_HEADING = re.compile(
     r'^\s*(?:academic\s+)?(?:education|qualifications?)(?:\s+(?:and|&)\s+[\w ]+)?\s*:?\s*', re.I
 )
@@ -370,15 +407,35 @@ def _segments(lines, offsets, block):
 def _block_record(source, lines, offsets, block):
     """One education record from a block, or None when it is unclear."""
     segments = _segments(lines, offsets, block)
-    title = next((t for _, t in segments if DEGREE.search(t) and not INSTITUTION.search(t)), None)
-    organization = next((t for _, t in segments if INSTITUTION.search(t) and not DEGREE.search(t)), None)
+    title = next((t for _, t in segments if DEGREE.search(t) and not names_institution(t)), None)
+    organization = next((t for _, t in segments if names_institution(t) and not DEGREE.search(t)), None)
     if title is None:
-        return None
+        # The degree and the school share one part of the line.
+        both = next((t for _, t in segments if DEGREE.search(t)), None)
+        if both is None:
+            return None
+        title, school = split_degree_school(both)
+        if school is None:
+            return None
+        organization = organization or school
+    else:
+        title, school = split_degree_school(title, grade_only=True)
+        organization = organization or school
+    if organization and CONTINUES.search(organization):
+        # "... College of" / "Engineering, Shegaon": the name goes on to the next line.
+        later = [t for _, t in segments if t not in (title, organization)]
+        index = next((n for n, (_, t) in enumerate(segments) if organization in t), None)
+        if index is not None and index + 1 < len(segments) and segments[index + 1][1] in later:
+            organization = organization + ' ' + segments[index + 1][1]
     lo = offsets[block[0][0]] + block[0][1]
     hi = offsets[block[-1][0]] + len(lines[block[-1][0]])
     dates = [m for m in date_candidates(source) if lo <= m.start() < hi]
     if len(dates) > 2:
-        return None
+        # Grades and coursework lines carry other years: the degree line's own dates win.
+        first_end = offsets[block[0][0]] + len(lines[block[0][0]])
+        dates = [m for m in dates if m.start() < first_end]
+        if not dates or len(dates) > 2:
+            return None
     return Fact(
         title=_without_dates(title),
         organization=organization,
@@ -391,6 +448,11 @@ def _block_record(source, lines, offsets, block):
 def _without_dates(title):
     """'Higher Secondary (12th Grade) 2022 - 2024' -> 'Higher Secondary (12th Grade)'.
     The dates are kept as the record's own dates."""
+    # "B.E. in Information Technology 08/2024": a month/year date is not read as a date
+    # (it could be a day/month), but it is still not part of the degree's name.
+    month_year = re.search(r'\s+\(?\d{1,2}/(?:19|20)\d{2}\b.*$', title)
+    if month_year and DEGREE.search(title[: month_year.start()]):
+        title = title[: month_year.start()].rstrip(' -–—:|,(')
     dates = date_candidates(title)
     if not dates:
         return title
@@ -413,7 +475,7 @@ def layout_education(source):
     if not degree_rows:
         return None if heading_seen and any(lines[i][c:].strip() for i, c in region) else []
     region_ids = [i for i, _ in region]
-    records = []
+    records, unclear = [], False
     for number, (index, column) in enumerate(degree_rows):
         shared = shared_line_records(source, offsets[index] + column, lines[index][column:])
         if shared is not None:
@@ -425,6 +487,8 @@ def layout_education(source):
         block = _entry_block(lines, region, region_ids, index, column, following)
         record = _block_record(source, lines, offsets, block)
         if record is None:
-            return None
-        records.append(record)
-    return records
+            unclear = True
+        else:
+            records.append(record)
+    # An unclear entry is left to the model; the clear ones are still read.
+    return None if unclear and not records else records

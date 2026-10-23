@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.3.1 — fixes from the second student CV run (October 2026)
+
+From a laptop run of 7 student CVs: 2 failed on a model timeout, and the others lost
+education entries, certificates and roles.
+
+- **A model timeout skips one section only.** A question the small model does not answer
+  in time no longer fails the whole CV (it did on 2 of 7 CVs). That section is read from
+  the document when its layout is plain, else a note says it was left out. Running out of
+  file time keeps what was read. A file fails only when nothing at all was read, or after
+  3 timeouts in a row; a job whose files all timed out goes back to the line once, then
+  ends as `model_unavailable` (retryable) instead of `no_records`.
+- **OCR no longer repeats a page's own text.** A page with pictures is still read by OCR,
+  but a line whose words the text layer already holds is left out. One CV was read twice
+  (once noisy), which doubled its projects and filed certificates as jobs.
+- **Education (reader cv/6):** the degree, grade and school on one line are split
+  ("HSC 73.50 % Example Junior College 2024", "SSC-(91.16%)Example Vidya Mandir",
+  "… at Example College of / Engineering"); "Secondary School (Class X)" is a degree, not a
+  school; a coursework or grade line no longer hides the degree line's dates; a month/year
+  date ("08/2024") is kept out of the degree name; Vidyalaya, Vidya Mandir and similar
+  names are schools. One unclear entry no longer drops the clear ones.
+- **Certificates and awards** are read from their list when the document shows more items
+  than the model's checked answer (the model often returned the first item only):
+  bullets, OCR bullets, wrapped lines ("Ver. 9.1"), items on the heading line, and
+  certificates listed under Achievements. Narrow two-column text and skills lines are left
+  to the model.
+- **Roles:** "Internship Experience" and "Internships" are work headings; a role with no
+  date followed by its bullets is read; the wrapped end of a bullet ("Project Expo") is
+  not a heading, and a dated role after an unfinished bullet starts a new entry.
+
 ## 1.3.0 — GitHub agent (October 2026)
 
 - **GitHub agent** (`/v1/github/jobs`, keys `ua_gh_...`): reads a public GitHub account

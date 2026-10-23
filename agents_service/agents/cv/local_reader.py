@@ -6,7 +6,7 @@ import time
 
 from pydantic import ConfigDict, ValidationError, create_model
 
-from agents_service.agents.cv import source_education, source_records
+from agents_service.agents.cv import source_education, source_lists, source_records
 from agents_service.agents.cv.evidence import supported_resume
 from agents_service.agents.cv.owner import extract_owner
 from agents_service.agents.cv.schemas import ResumeFacts
@@ -80,6 +80,10 @@ SECTION_LABELS = {
 SECTION_SKIPPED = (
     'Some {section} details could not be read reliably and were left out. You can add them after saving.'
 )
+OUT_OF_TIME = 'Part of this CV could not be read in time and was left out. You can add it after saving.'
+# A question the model does not answer in time skips its section only. After this
+# many in a row the model is taken to be stuck and the file stops.
+MAX_TIMEOUTS_IN_A_ROW = 3
 
 
 def section_may_exist(fields, chunk):
@@ -189,6 +193,22 @@ def _records(fields, chunk, schema, reply, supported_resume):
     return {field: entries}
 
 
+def _list_records(fields, chunk, schema, reply, supported_resume):
+    # Certificates and awards: a small model often returns the first item only.
+    field = fields[0]
+    layout = source_lists.layout_items(chunk, field)
+    try:
+        entries = schema.model_validate(reply.data).model_dump()[field]
+    except ValidationError:
+        if not layout:
+            raise
+        return {field: layout}
+    kept = supported_resume({field: entries, 'warnings': []}, chunk)[field]
+    if len(layout) > len(kept):
+        entries = layout  # the document lists more items plainly than the model's checked answer
+    return {field: entries}
+
+
 def _checked_section(fields, chunk, schema, reply, supported_resume):
     """The section's facts that the chunk supports; raises AIError or ValidationError."""
     if reply.finish != 'stop':
@@ -197,6 +217,8 @@ def _checked_section(fields, chunk, schema, reply, supported_resume):
         parsed = _education(chunk, reply)
     elif fields in (('work_experience_entries',), ('projects',)):
         parsed = _records(fields, chunk, schema, reply, supported_resume)
+    elif fields in (('certifications',), ('awards',)):
+        parsed = _list_records(fields, chunk, schema, reply, supported_resume)
     else:
         parsed = schema.model_validate(reply.data).model_dump()
     complete = ResumeFacts.model_validate(parsed).model_dump()
@@ -227,6 +249,35 @@ def _merge(merged, scalar_evidence, fields, checked, chunk):
         merged[field] = observations[0]['value'] if len(distinct) == 1 else None
 
 
+def _from_document(fields, chunk):
+    """The section read from the document alone, when its layout is plain; else None."""
+    if fields == ('education',):
+        found = source_education.layout_education(chunk)
+        return {'education': found} if found else None
+    if fields in (('work_experience_entries',), ('projects',)):
+        kind = 'work' if fields[0] == 'work_experience_entries' else 'projects'
+        found = source_records.layout_entries(chunk, kind)
+        return {fields[0]: found} if found else None
+    if fields in (('certifications',), ('awards',)):
+        found = source_lists.layout_items(chunk, fields[0])
+        return {fields[0]: found} if found else None
+    return None
+
+
+def _skip(merged, scalar_evidence, fields, chunk):
+    """A section the model could not read: keep what the document shows plainly, else note it."""
+    found = _from_document(fields, chunk)
+    if found:
+        checked = supported_resume({**ResumeFacts().model_dump(), **found}, chunk)
+        _merge(merged, scalar_evidence, fields, checked, chunk)
+        return
+    merged['warnings'].append(SECTION_SKIPPED.format(section=SECTION_LABELS.get(fields[0], 'some')))
+
+
+def _found_anything(merged):
+    return any(value for key, value in merged.items() if key != 'warnings' and not key.startswith('_'))
+
+
 def extract_local_resume(source, config):
     """Read a CV with a small local model: one request per section and chunk."""
 
@@ -240,31 +291,53 @@ def extract_local_resume(source, config):
     merged['_owner_candidates'] = owners
     if owners:
         merged['name'] = owners[0]['value']
-    for fields, chunk in pending:
+    timeouts = timed_out = 0
+    for index, (fields, chunk) in enumerate(pending):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise AIError('timeout')
+            # Out of time: keep what was read, and what the document shows plainly.
+            for rest_fields, rest_chunk in pending[index:]:
+                found = _from_document(rest_fields, rest_chunk)
+                if found:
+                    checked = supported_resume({**ResumeFacts().model_dump(), **found}, rest_chunk)
+                    _merge(merged, scalar_evidence, rest_fields, checked, rest_chunk)
+            if not _found_anything(merged):
+                raise AIError('timeout')
+            merged['warnings'].append(OUT_OF_TIME)
+            break
         schema, system, content = _section_request(fields, chunk, config.get('text_first', False))
-        with provider(config, timeout=min(config.get('request_seconds', 90), remaining)) as client:
-            reply = client.generate(
-                system=system,
-                messages=[{'role': 'user', 'content': content}],
-                max_tokens=2048,
-                schema=explicit_schema(schema),
-                name='resume_section',
-            )
-        if time.monotonic() > deadline:
-            raise AIError('timeout')
+        try:
+            with provider(config, timeout=min(config.get('request_seconds', 90), remaining)) as client:
+                reply = client.generate(
+                    system=system,
+                    messages=[{'role': 'user', 'content': content}],
+                    max_tokens=2048,
+                    schema=explicit_schema(schema),
+                    name='resume_section',
+                )
+        except AIError as exc:
+            if exc.reason != 'timeout':
+                raise
+            # One slow answer (the model ran on) skips this section only.
+            timeouts += 1
+            timed_out += 1
+            if timeouts >= MAX_TIMEOUTS_IN_A_ROW:
+                raise
+            _skip(merged, scalar_evidence, fields, chunk)
+            continue
+        timeouts = 0
         try:
             checked = _checked_section(fields, chunk, schema, reply, supported_resume)
         except (AIError, ValidationError) as exc:
             # One section the model could not read leaves the rest of the CV
-            # usable. Only a whole-file problem (time, size, connection) stops it.
+            # usable. Only a whole-file problem (size, connection) stops it.
             if isinstance(exc, AIError) and exc.reason not in SOFT_REASONS:
                 raise
-            merged['warnings'].append(SECTION_SKIPPED.format(section=SECTION_LABELS.get(fields[0], 'some')))
+            _skip(merged, scalar_evidence, fields, chunk)
             continue
         _merge(merged, scalar_evidence, fields, checked, chunk)
+    if timed_out and not _found_anything(merged):
+        raise AIError('timeout')  # nothing read at all: the job is tried again
     variants = {
         field: observations
         for field, observations in scalar_evidence.items()

@@ -16,7 +16,8 @@ from agents_service.agents.cv.source_education import (
 )
 
 WORK_HEADING = re.compile(
-    r'^\s*(?:(?:work|professional|employment|relevant)\s+)?(?:experience|history|employment)\s*:?\s*$',
+    r'^\s*(?:(?:work|professional|employment|relevant|internship)\s+)?(?:experience|history|employment)\s*:?\s*$|'
+    r'^\s*internships?(?:\s*(?:&|and)\s*(?:work\s+)?experience)?\s*:?\s*$',
     re.I,
 )
 PROJECT_HEADING = re.compile(
@@ -48,6 +49,19 @@ def _lines(source):
     return lines, offsets
 
 
+def _wraps_bullet(lines, index):
+    """The line goes on from an unfinished bullet above it ("… a National level" / "Project Expo")."""
+    previous = lines[index - 1].strip() if index else ''
+    line = lines[index].strip()
+    return bool(
+        BULLET.match(previous)
+        and not previous.endswith(('.', '!', '?', ')', ':'))
+        and line
+        and not line.isupper()
+        and not BULLET.match(line)
+    )
+
+
 def _region(lines, heading):
     """Line indexes under the wanted heading; lines before any heading are kept too
     (a chunk can start in the middle of the section)."""
@@ -56,12 +70,14 @@ def _region(lines, heading):
         if heading.match(line) or COMBINED_HEADING.match(line):
             state = 'in'
             continue
+        # A named heading always ends the section. A line that only looks like one
+        # ("Project Expo") is the wrapped end of an unfinished bullet above it.
         if (
             OTHER_HEADING.match(line)
             or EDUCATION_HEADING.match(line)
             or WORK_HEADING.match(line)
             or PROJECT_HEADING.match(line)
-            or is_section_heading(line)
+            or (is_section_heading(line) and not _wraps_bullet(lines, index))
         ):
             state = 'out'
             continue
@@ -165,8 +181,12 @@ def _headers(lines, ids, kind, inside=frozenset()):
         if not parts:
             continue
         previous = lines[i - 1].strip() if i - 1 in allowed else ''
+        # A line after an unfinished bullet is that bullet's wrapped text, unless
+        # bullets of its own follow it ("Volunteer — Management Team, NAVONMESH 2026").
         continuation = line.strip()[0].islower() or bool(
-            BULLET.match(previous) and not previous.endswith(('.', '!', '?', ')'))
+            BULLET.match(previous)
+            and not previous.endswith(('.', '!', '?', ')'))
+            and not _next_is_bullet(lines, i, allowed)
         )
         if (
             headers
@@ -192,7 +212,9 @@ def _headers(lines, ids, kind, inside=frozenset()):
             headers.append((i - 1, i, parts))
         elif kind == 'work' and _title_employer_header(lines, i, allowed, parts):
             headers.append((i, i + 2, parts + _text_parts(lines[i + 1])[:1]))
-        elif kind == 'projects' and _undated_project_title(lines, i, allowed, inside):
+        elif _undated_project_title(lines, i, allowed, inside):
+            # A project, or a role such as "Member, Google Developers Student Clubs",
+            # written as a title and its bullets with no date.
             headers.append((i, i, parts))
         if headers and headers[-1][0] == i:
             consumed = headers[-1][1]
@@ -264,7 +286,7 @@ def layout_entries(source, kind):
         return None if headed and any(lines[i].strip() for i in ids) else []
     if _overlapping(headers):
         return None
-    records = []
+    records, unclear = [], False
     for number, header in enumerate(headers):
         if combined and (len(header[2]) >= 2) != (kind == 'work'):
             # One section for jobs and projects: a "Title – Organisation" entry is a
@@ -275,6 +297,8 @@ def layout_entries(source, kind):
         description_ids = _description_ids(ids, lines, header[1], following)
         record = _record(source, lines, offsets, header, description_ids, kind)
         if record is None:
-            return None
-        records.append(record)
-    return records
+            unclear = True
+        else:
+            records.append(record)
+    # An unclear entry is left to the model; the clear ones are still read.
+    return None if unclear and not records else records

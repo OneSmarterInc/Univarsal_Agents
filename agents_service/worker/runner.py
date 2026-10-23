@@ -24,7 +24,10 @@ log = logging.getLogger(__name__)
 SWEEP_SECONDS = 60
 # How often a running job checks the line: renews its borrow and notices a cancel.
 RENEW_SECONDS = 10
-MODEL_DOWN = ('connection', 'provider')
+# File failures that mean the model, not the file: the job goes back to the line
+# once, then ends as model_unavailable (retryable). A small local model sometimes
+# stalls on one question, so a second try usually succeeds.
+MODEL_DOWN = ('connection', 'provider', 'timeout')
 
 
 def worker_id():
