@@ -53,7 +53,7 @@ def test_cv_job_runs_end_to_end(client, services, make_key, pdf_bytes, fake_cv_m
     assert {'name', 'skills', 'work_experience_entries'} <= sections
     work = next(r for r in done['result']['records'] if r['section'] == 'work_experience_entries')
     assert work['sources'][0]['evidence'] == 'Data Analyst, Example Health, 2021 - 2024'
-    assert done['result']['reader_version'] == 'cv/6'
+    assert done['result']['reader_version'] == 'cv/7'
     assert done['result']['model'] == {'provider': 'ollama', 'name': 'kormic-local'}
     assert done['result']['files'] == [{'index': 0, 'status': 'complete', 'records': 4}]
     # The uploaded file is deleted when the job ends.

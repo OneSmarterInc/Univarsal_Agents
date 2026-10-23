@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.2 — clean-up of the small model's repeats (October 2026)
+
+From the laptop re-run of 7 student CVs with Qwen3 1.7B (reader cv/6): every CV finished on
+the first try; these were the model's remaining mistakes. Every value is still a copy of
+the document's text.
+
+- **Repeats merged (reader cv/7):** the same job, project, education entry, certificate or
+  award found twice (once with its bullets, once without) is kept once, with its bullets.
+- **A project filed again as a job** (same title or the same first line, and no employer)
+  stays a project only.
+- **A summary that is a block of the CV** (its text runs over two or more section headings)
+  is refused; when one summary alternative is left, it is the summary, with no choice to make.
+- **Skill lines split:** "Backend: Django, Node.js" and "Programming Languages: Python ,Numpy"
+  become one skill each; commas inside brackets stay ("Web Scraping (BeautifulSoup, Scrapy)").
+
 ## 1.3.1 — fixes from the second student CV run (October 2026)
 
 From a laptop run of 7 student CVs: 2 failed on a model timeout, and the others lost

@@ -1,6 +1,7 @@
 """CV agent: reads one CV (PDF or Word) and returns every fact quoted from it."""
 
 from agents_service.agents.base import MB, Agent, AgentResult, FileRule, JobContext
+from agents_service.agents.cv.cleanup import clean_summary_variants, tidy
 from agents_service.agents.cv.evidence import supported_owners, supported_resume, supported_variants
 from agents_service.agents.cv.local_reader import extract_local_resume
 from agents_service.agents.cv.schemas import ResumeFacts
@@ -44,8 +45,15 @@ def checked_facts(response, source, warnings):
         supported_owners(response['_owner_candidates'], source) if '_owner_candidates' in response else None
     )
     data = ResumeFacts.model_validate(response, extra='ignore').model_dump()
-    data = supported_resume(data, source)
+    data = tidy(supported_resume(data, source))
     warnings.extend(data.pop('warnings'))
+    if 'summary' in variants:
+        variants['summary'] = clean_summary_variants(variants['summary'])
+        if len(variants['summary']) < 2:
+            # One summary left: it is the summary, with nothing to choose between.
+            remaining = variants.pop('summary')
+            if remaining and not data.get('summary'):
+                data['summary'] = remaining[0]['value']
     if owners is not None:
         # Every possible owner name is returned; the project decides.
         data['name'] = owners
@@ -70,7 +78,7 @@ class CvAgent(Agent):
         'education', 'work_experience_entries', 'projects', 'publications',
         'certifications', 'awards', 'volunteering', 'skills', 'languages', 'other_information',
     )  # fmt: skip
-    reader_version = 'cv/6'
+    reader_version = 'cv/7'
 
     def file_rule(self, settings):
         return FileRule(
