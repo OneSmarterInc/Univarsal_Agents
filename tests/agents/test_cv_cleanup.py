@@ -195,3 +195,101 @@ def test_an_institution_must_be_a_school():
     assert 'institution' not in variants
     place = tidy_scalars({'institution': 'Exampletown, State, India', 'education': []}, {}, '')[0]
     assert place['institution'] is None
+
+
+# --- skills, split names and emails, repeats across sections (1.3.4) ---------------------
+
+from agents_service.agents.cv.cleanup import (  # noqa: E402
+    add_document_skills,
+    drop_bare_links,
+    drop_cross_repeats,
+    drop_study_years,
+    drop_title_technologies,
+    join_split_name,
+    join_wrapped_titles,
+    major_only,
+)
+
+SKILLS_CV = (
+    'RIYA EXAMPLE\nSKILLS\n● Programming Languages: Python, C, Java (basics)\n'
+    '● Generative AI: LangChain, OpenAI API\n• PowerPoint, Canva (Design & Presentation Tool\n'
+    'Comfortable working with many teams across many example projects every week\nEDUCATION\nB.E. Example'
+)
+
+
+def test_every_labelled_skill_line_is_read():
+    skills = add_document_skills(['Python', 'C', 'Java'], SKILLS_CV)
+    assert skills == ['Python', 'C', 'Java', 'LangChain', 'OpenAI API', 'PowerPoint', 'Canva']
+
+
+def test_a_name_and_an_email_over_two_lines_are_joined():
+    source = 'RIYA EXAMPLE\nKUMARI\nEMAIL\nriya.example65@g\nmail.com'
+    owners = [{'value': 'RIYA EXAMPLE', 'evidence': 'x'}, {'value': 'KUMARI', 'evidence': 'y'}]
+    assert join_split_name(owners, source) == [
+        {'value': 'RIYA EXAMPLE KUMARI', 'evidence': 'RIYA EXAMPLE\nKUMARI'}
+    ]
+    data, _ = tidy_scalars({'email': None, 'education': []}, {}, source)
+    assert data['email'] == {'value': 'riya.example65@gmail.com', 'evidence': 'riya.example65@g\nmail.com'}
+
+
+def test_an_item_in_two_sections_is_kept_once():
+    data = {
+        'awards': [job('Best Idea Award', 'Example Cell', 'Aug 2025', evidence='Best Idea Award – Contest 2025, Example Cell (Aug 2025) for Example')],
+        'certifications': [
+            job('Best Idea Award – Contest 2025', 'Example Cell', 'Aug 2025', evidence='Best Idea Award – Contest 2025, Example Cell (Aug 2025)'),
+            job('Example Cloud Foundations', 'Example Academy', evidence='Example Cloud Foundations, Example Academy'),
+        ],
+        'volunteering': [job('Volunteer', 'EXAMPLEFEST', evidence='Volunteer — Team, EXAMPLEFEST 2026 • Ran the expo')],
+        'work_experience_entries': [
+            job('Volunteer', 'Team, EXAMPLEFEST', '2026', evidence='Volunteer — Team, EXAMPLEFEST 2026\n• Ran the expo'),
+            job('Web Intern', 'Example Ltd', '2025', evidence='Web Intern | Example Ltd 2025'),
+        ],
+    }  # fmt: skip
+    drop_cross_repeats(data)
+    assert [c['title'] for c in data['certifications']] == ['Example Cloud Foundations']
+    assert [w['title'] for w in data['work_experience_entries']] == ['Web Intern']
+
+
+def test_wrapped_titles_study_years_and_title_technologies():
+    award = job(
+        'Played district cricket, showing dedication to',
+        description='sports.',
+        evidence='Played district cricket, showing dedication to\nsports.',
+    )
+    same_line = job(
+        'Best Idea Award', description='for Example App', evidence='Best Idea Award (2025) for Example App'
+    )
+    assert join_wrapped_titles([same_line])[0]['title'] == 'Best Idea Award'
+    assert join_wrapped_titles([award])[0]['title'] == 'Played district cricket, showing dedication to sports'
+    cert = job('Example Training', description='Ver. 4.6')
+    assert join_wrapped_titles([cert])[0]['description'] == 'Ver. 4.6'
+    degree = job(
+        'B.E. Example',
+        'Example College',
+        None,
+        '2024',
+        evidence='B.E. Example | Example College\n• In 3rd year (2024–25 SGPA: 7.8)',
+    )
+    assert drop_study_years([degree])[0]['end_date'] is None
+    span = job('BE', None, 'June 2024', '2028', evidence='BE, Example; Average SGPA: 8.6 June 2024 – 2028')
+    assert drop_study_years([span])[0]['end_date'] == '2028'
+    titled = {
+        **job('Cloud Architecting', 'Example Web Services'),
+        'technologies': ['Cloud Architecting', 'Example Web Services', 'Docker'],
+    }
+    assert drop_title_technologies([titled])[0]['technologies'] == ['Docker']
+
+
+def test_majors_links_and_a_college_town():
+    assert major_only('B.E. Information Technology') == 'Information Technology'
+    assert major_only('Bachelor of Engineering in Information Technology') == 'Information Technology'
+    assert major_only('Mechanical Engineering') == 'Mechanical Engineering'
+    data, variants = tidy_scalars(
+        {'major': None, 'education': []},
+        {'major': [{'value': 'B.E. Information Technology', 'evidence': 'long block'}, {'value': 'Information Technology', 'evidence': 'x'}]},
+        '',
+    )  # fmt: skip
+    assert data['major'] == 'Information Technology' and 'major' not in variants
+    assert drop_bare_links(['LinkedIn', 'GitHub: example-user']) == ['GitHub: example-user']
+    source = 'RIYA EXAMPLE\n+91 5550100200\nEDUCATION\nExample College of Engineering Exampletown, India'
+    assert tidy_scalars({'location': 'India', 'education': []}, {}, source)[0]['location'] is None

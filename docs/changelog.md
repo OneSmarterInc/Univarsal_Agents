@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.4 — skills lists, split names and repeats across sections (October 2026)
+
+From the laptop re-run on reader cv/8. Every value is still a copy of the document's text.
+
+- **Skills under the skills heading are read from the document (reader cv/9)** and added
+  to the model's: every labelled line ("Generative AI: LangChain, OpenAI API") counts, not
+  only the first. Sub-headings ("Soft Skills"), cut brackets and parts of a skill the model
+  already has are left out.
+- **A name or an email printed over two lines is joined:** "ABHISHEK SHRIKRISHNA" /
+  "MORKHADE" is one name (only a one-word surname line joins); "name@g" / "mail.com" is one
+  email, with both lines as its evidence.
+- **One item, one section:** an award also listed as a certificate stays an award; a
+  volunteer role also listed as a job stays volunteering.
+- **A title cut at a line break** gets its last words back from the description
+  ("…dedication to" + "sports.").
+- **One major:** "B.E. Information Technology" and "Information Technology" are the same major.
+- **Plain mistakes removed:** a degree year read from "2024–25 SGPA"; certificate
+  "technologies" that only repeat the title or issuer; a location found only on the
+  college's line; links that are only a label ("LinkedIn").
+
 ## 1.3.3 — contact details, graduation year and institution (October 2026)
 
 From the same laptop re-run (reader cv/6). Every value is still a copy of the document's text.

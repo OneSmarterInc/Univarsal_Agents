@@ -53,7 +53,7 @@ def test_cv_job_runs_end_to_end(client, services, make_key, pdf_bytes, fake_cv_m
     assert {'name', 'skills', 'work_experience_entries'} <= sections
     work = next(r for r in done['result']['records'] if r['section'] == 'work_experience_entries')
     assert work['sources'][0]['evidence'] == 'Data Analyst, Example Health, 2021 - 2024'
-    assert done['result']['reader_version'] == 'cv/8'
+    assert done['result']['reader_version'] == 'cv/9'
     assert done['result']['model'] == {'provider': 'ollama', 'name': 'kormic-local'}
     # The stand-in model gives 4 facts; the email is read from the document (1.3.3).
     assert done['result']['files'] == [{'index': 0, 'status': 'complete', 'records': 5}]

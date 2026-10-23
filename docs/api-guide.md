@@ -125,7 +125,7 @@ so no user request waits for minutes.
     "files": [{"index": 0, "status": "complete", "records": 9}],
     "warnings": [],
     "notices": [],
-    "reader_version": "cv/8",
+    "reader_version": "cv/9",
     "model": {"provider": "ollama", "name": "kormic-local"},
     "timing": {"seconds": 74.2, "model": {"requests": 11, "seconds": 70.9}}
   }

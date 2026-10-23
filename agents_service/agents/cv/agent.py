@@ -1,7 +1,7 @@
 """CV agent: reads one CV (PDF or Word) and returns every fact quoted from it."""
 
 from agents_service.agents.base import MB, Agent, AgentResult, FileRule, JobContext
-from agents_service.agents.cv.cleanup import clean_summary_variants, tidy, tidy_scalars
+from agents_service.agents.cv.cleanup import clean_summary_variants, join_split_name, tidy, tidy_scalars
 from agents_service.agents.cv.evidence import supported_owners, supported_resume, supported_variants
 from agents_service.agents.cv.local_reader import extract_local_resume
 from agents_service.agents.cv.schemas import ResumeFacts
@@ -42,7 +42,9 @@ def checked_facts(response, source, warnings):
     """Facts the CV text supports; adds notes to warnings."""
     variants = supported_variants(response.get('_scalar_variants', {}), source)
     owners = (
-        supported_owners(response['_owner_candidates'], source) if '_owner_candidates' in response else None
+        join_split_name(supported_owners(response['_owner_candidates'], source), source)
+        if '_owner_candidates' in response
+        else None
     )
     data = ResumeFacts.model_validate(response, extra='ignore').model_dump()
     data = tidy(supported_resume(data, source))
@@ -79,7 +81,7 @@ class CvAgent(Agent):
         'education', 'work_experience_entries', 'projects', 'publications',
         'certifications', 'awards', 'volunteering', 'skills', 'languages', 'other_information',
     )  # fmt: skip
-    reader_version = 'cv/8'
+    reader_version = 'cv/9'
 
     def file_rule(self, settings):
         return FileRule(
