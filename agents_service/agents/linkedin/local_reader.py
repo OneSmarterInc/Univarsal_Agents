@@ -7,6 +7,7 @@ import time
 from pydantic import ConfigDict, ValidationError, create_model
 
 from agents_service.agents.linkedin import source_jobs
+from agents_service.agents.linkedin.literal import literal_observation
 from agents_service.agents.linkedin.schemas import ImageObservation
 from agents_service.agents.linkedin.sections import SCALARS, chunks, sections, top_skills
 from agents_service.agents.linkedin.validation import validate_data
@@ -138,9 +139,12 @@ def _request(fields, chunk, config, deadline):
             jobs = source_jobs.layout_jobs(chunk)
             if jobs is None:
                 raise
-        if not jobs:
-            jobs = source_jobs.layout_jobs(chunk) or []
-        data = {'experiences': jobs}
+        # The layout reading copies every value from its line and keeps grouped roles
+        # under their employer; it wins when it finds at least as many jobs.
+        layout = source_jobs.layout_jobs(chunk)
+        if layout and len(layout) >= len(jobs or []):
+            jobs = layout
+        data = {'experiences': source_jobs.plain_jobs(jobs or [])}
     else:
         data = schema.model_validate(reply.data).model_dump()
         if scalar:
@@ -180,6 +184,19 @@ def extract_local(source, config):
                     if key not in seen:
                         merged[field].append(entry)
                         seen.add(key)
+    # The header read from its layout: the full headline (the model often returns one
+    # part of it), and the name or place when the model found none.
+    literal = literal_observation(source)
+    # Only the profile's own header card counts: it shows the owner's name with pronouns.
+    # Post cards repeat the headline ("B.E. IT '28 | Intern @ One...") without them.
+    header_fields = ('name', 'headline', 'location') if literal.get('name') else ()
+    for field in header_fields:
+        found = literal.get(field)
+        if not found:
+            continue
+        current = merged[field]
+        if not current or (field == 'headline' and canonical(current['value']) in canonical(found['value'])):
+            merged[field] = found
     # The mobile "top skills" page lists each skill on its own line: read those lines
     # as written, as well as what the model found. Each is still checked below.
     known = {canonical(skill['name']) for skill in merged['skills']}

@@ -78,6 +78,9 @@ def main_column_text(data, width):
     return '\n'.join(out)
 
 
+SMALL_IMAGE = 2000
+
+
 def ocr(image, columns=False):
     import pytesseract
 
@@ -85,6 +88,11 @@ def ocr(image, columns=False):
         pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
     image = ImageOps.exif_transpose(image).convert('RGB')
     image.thumbnail((3000, 3000))
+    if max(image.size) < SMALL_IMAGE:
+        # A screenshot of a part of a page is small: OCR loses digits ("Aug 202") and
+        # characters there. Twice the size reads it fully (tested on LinkedIn screenshots).
+        factor = min(2.0, SMALL_IMAGE / max(image.size))
+        image = image.resize((round(image.width * factor), round(image.height * factor)), Image.LANCZOS)
     try:
         if columns:
             data = pytesseract.image_to_data(

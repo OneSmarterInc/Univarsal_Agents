@@ -67,10 +67,19 @@ def _headline(lines, index, line, result):
     block = [line]
     for extra in lines[index + 1 : index + 7]:
         if extra.strip() and '|' not in extra:
+            # "… | Deep" / "Learning, Generative AI": the last part was cut at the line end.
+            last = block[-1].rsplit('|', 1)[-1].split()
+            if (
+                block[-1].strip()
+                and len(last) <= 2
+                and not re.search(r'contact info|connections|followers', extra, re.I)
+            ):
+                block.append(extra)
             break
         block.append(extra)
     evidence = '\n'.join(block).rstrip()
     headline = re.split(r'Enhance profile|Add section', evidence, flags=re.I)[0].strip()
+    headline = re.sub(r'\s*\n\s*', ' ', headline)
     result['headline'] = {'value': headline, 'evidence': evidence}
     # "Engineer | Python at Acme" has no employer in its first part.
     parts = re.split(r'\s*(?:@|\bat\b)\s*', line.split('|', 1)[0], maxsplit=1, flags=re.I)

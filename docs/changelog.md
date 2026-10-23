@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.6 — LinkedIn screenshots of one's own profile (October 2026)
+
+From the live LinkedIn test on the laptop (5 screenshots). Reader `linkedin/5`.
+
+- **Small screenshots are enlarged before OCR** (under 2,000 pixels, up to twice the
+  size). A cut-out of a page lost digits ("Aug 202"), so the first job was missing.
+- **Every job is read from the layout** when the layout reading finds at least as many
+  jobs as the model: "Title / Employer · Full-time / dates", and several roles under one
+  employer ("Employer / 1 yr 8 mos / On-site / Role / Full-time / dates") keep that
+  employer. The bullets under a job are its description. Every value is a copy of a line.
+- **The employment type is not part of the employer** ("College, Shegaon «Full-time" is
+  "College, Shegaon"); a job whose employer is only "Full-time", or whose title is a
+  description bullet, is dropped.
+- **The owner's own view is not profile text:** "Add connected apps", "Add custom button",
+  "Analytics", profile views, post impressions, "Show all" and "Create a post" lines are
+  removed, so they no longer become a name, a place or a post.
+- **The whole headline** is read from the header card when the model returns one part of
+  it ("… | Deep" / "Learning, Generative AI …" is one headline). Only the card with the
+  owner's pronouns counts, never a post card.
+
 ## 1.3.5 — GitHub gist proof survives a broken gist (October 2026)
 
 From the live GitHub test on the laptop.

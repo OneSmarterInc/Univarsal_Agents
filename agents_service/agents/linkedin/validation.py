@@ -102,7 +102,11 @@ def clean_text(text: str, screenshot: bool = False) -> str:
 
 UI_NOISE_LINE = re.compile(
     r'(?:premium subscribers.*|try premium.*|enhance profile|.*\bworks here|'
-    r'https?://(?:www\.)?linkedin\.com/jobs/\S*|logout|sign in|notifications?)',
+    r'https?://(?:www\.)?linkedin\.com/jobs/\S*|logout|sign in|notifications?|'
+    # The owner's own view of a profile: buttons, analytics and app boxes.
+    r'\W*add (?:connected apps|custom button|section).*|\W*connected apps\b.*|analytics|'
+    r'\W*private to you|.*\b(?:profile views?|post impressions?|search appearances?)\b.*|'
+    r'\W*create\s*a\s*post\W*|\W*show all\b.*|\W*open to\W*)',
     re.I,
 )
 

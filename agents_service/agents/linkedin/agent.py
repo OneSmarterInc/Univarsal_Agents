@@ -66,7 +66,7 @@ class LinkedInAgent(Agent):
         'posts',
         'certifications',
     )
-    reader_version = 'linkedin/4'
+    reader_version = 'linkedin/5'
 
     def file_rule(self, settings):
         return FileRule(

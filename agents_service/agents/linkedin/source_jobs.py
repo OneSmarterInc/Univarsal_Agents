@@ -157,23 +157,45 @@ def checked_records(source, records, fail):
     return checked
 
 
-DURATION = re.compile(r'^\s*(?:\d+\s*(?:yrs?|years?|mos?|months?)\s*)+$', re.I)
+# "1 yr 8 mos"; OCR may drop the first digit ("yr 8 mos").
+DURATION = re.compile(r'^\s*(?=.*\d)(?:\d*\s*(?:yrs?|years?|mos?|months?)\s*)+$', re.I)
 EMPLOYMENT_TYPE = re.compile(
-    r'\s*[·|\-–—•]\s*(?:Full[- ]time|Part[- ]time|Internship|Contract|Self[- ]employed|'
+    r'(?:\s*[·|\-–—•«»]\s*|\s+)(?:Full[- ]time|Part[- ]time|Internship|Contract|Self[- ]employed|'
     r'Freelance|Apprenticeship|Seasonal|Temporary)\s*$',
     re.I,
 )
+TYPE_ONLY = re.compile(
+    r'^\W*(?:Full[- ]time|Part[- ]time|Internship|Contract|Self[- ]employed|Freelance|Apprenticeship|'
+    r'Seasonal|Temporary)\W*$',
+    re.I,
+)
+WORK_MODE = re.compile(r'\b(?:on-?site|remote|hybrid)\W*$', re.I)
+BULLET = re.compile(r'^\s*[+*•●▪=·\-–]\s+\S')
+SKILLS_LINE = re.compile(r'\band \+\d+ skills?\b|^\W*skills?\s*:', re.I)
+OCR_LEAD = re.compile(r'^[^\w(]+')
 
 
-def layout_jobs(source):
-    """Read the standard LinkedIn layout without a model, or return None.
+def _date(line):
+    """The date match of a LinkedIn date line ("‘Aug 2025 - Jul 2026 · 1 yr"), or None."""
+    value = OCR_LEAD.sub('', line.strip()).replace('»', '·').replace('«', '·')
+    return RANGE.fullmatch(value) or SINGLE_DATE.fullmatch(value)
 
-    Standard layout: a job title line, an employer line, then a date line.
-    Any date line that does not fit this layout makes the whole chunk
-    ambiguous, so the caller keeps the model result or its failure.
-    Descriptions are not selected here.
-    """
-    lines = source.splitlines()
+
+def _tidy(text):
+    """A line may start with an OCR'd logo, bullet or quote ("18) Engineer", "‘One Smarter")."""
+    text = re.sub(r'^[^\sA-Za-z]*[A-Za-z]?[^\sA-Za-z]+\s+(?=[A-Za-z])', '', text.strip()) or text.strip()
+    return OCR_LEAD.sub('', text).strip()
+
+
+def _filler(text):
+    """A line between a role and its dates that is neither: blank, "Full-time", "On-site"."""
+    return (
+        not text or bool(TYPE_ONLY.fullmatch(text)) or bool(WORK_MODE.search(text) and len(text.split()) == 1)
+    )
+
+
+def _bounds(lines):
+    """(heading index, end index) of the Experience section, or None."""
     start = next(
         (i for i, line in enumerate(lines) if 'experiences' in HEADINGS.get(heading_of(line), ())),
         None,
@@ -188,72 +210,139 @@ def layout_jobs(source):
         ),
         len(lines),
     )
+    return start, end
 
-    def plain(index):
-        value = lines[index].strip() if start < index < end else ''
-        return bool(value) and not (
-            RANGE.fullmatch(value) or SINGLE_DATE.fullmatch(value) or DURATION.fullmatch(value)
+
+class _Layout:
+    def __init__(self, lines, start, end):
+        self.lines, self.start, self.end = lines, start, end
+        self.dates = [d for d in range(start + 1, end) if _date(lines[d])]
+        self.places = self._places()
+        self.used = set()
+        self.group = None
+
+    def text(self, k):
+        return self.lines[k].strip()
+
+    def _places(self):
+        """The place lines under each date line ("Shegaon, Maharashtra, India", "Ohio - Remote")."""
+        places = set()
+        for d in self.dates:
+            for k in range(d + 1, min(self.end, d + 4)):
+                text = self.text(k)
+                if not text:
+                    continue
+                if BULLET.match(text) or _date(text) or DURATION.fullmatch(text):
+                    break
+                if not (',' in text or WORK_MODE.search(text) or len(text.split()) == 1):
+                    break
+                places.add(k)
+        return places
+
+    def role_line(self, k):
+        """A short line with a timeline dot read as a bullet ("* Senior Analyst"), just
+        above a date line: a role, not a description bullet."""
+        if not BULLET.match(self.text(k)) or len(self.text(k).split()) > 6:
+            return False
+        nxt = next((j for j in range(k + 1, self.end) if not _filler(self.text(j))), None)
+        return nxt is not None and bool(_date(self.text(nxt)))
+
+    def stops(self, k):
+        text = self.text(k)
+        return (
+            k <= self.start
+            or k in self.used
+            or k in self.places
+            or bool(_date(text) or SKILLS_LINE.search(text))
+            or (bool(BULLET.match(text)) and not self.role_line(k))
         )
 
-    def previous_text(index):
-        # The nearest non-blank line above, skipping one OCR blank line at most.
-        for back in (index - 1, index - 2):
-            if start < back and lines[back].strip():
-                return back
-        return -1
+    def above(self, d):
+        """Up to two text lines above a date line, and the line of an employer's total time."""
+        found, k = [], d - 1
+        while k > self.start and len(found) < 2 and not self.stops(k):
+            if DURATION.fullmatch(self.text(k)):
+                return found, k
+            if not _filler(self.text(k)):
+                found.append(k)
+            k -= 1
+        return found, None
 
-    def is_duration(index):
-        return 0 <= index and bool(DURATION.fullmatch(lines[index].strip()))
-
-    def tidy(text):
-        # A line may start with an OCR'd logo or bullet ("18) Engineer", "* Analyst").
-        return re.sub(r'^[^\sA-Za-z]*[A-Za-z]?[^\sA-Za-z]+\s+(?=[A-Za-z])', '', text.strip()) or text.strip()
-
-    records, used, group = [], set(), None
-    for d in range(start + 1, end):
-        value = lines[d].strip()
-        match, single = RANGE.fullmatch(value), SINGLE_DATE.fullmatch(value)
-        if not (match or single):
-            continue
-        role_id = previous_text(d)
-        above = previous_text(role_id) if role_id > 0 else -1
-        if plain(role_id) and is_duration(above):
-            # Several roles under one employer: "Acme / 3 yrs 2 mos / Role / dates".
-            employer_id = previous_text(above)
-            if not plain(employer_id):
-                return None
-            group = employer_id
-            title_id, company_id = role_id, employer_id
-        elif plain(role_id) and plain(above) and above not in used:
-            # Standard: "Title / Employer / dates".
-            title_id, company_id = above, role_id
-            group = None
-        elif plain(role_id) and group is not None and (above in used or is_duration(above) or above == -1):
-            # A later role in the same employer group.
-            title_id, company_id = role_id, group
-        else:
-            return None
-        if title_id in used:
-            return None
-        used |= {title_id, d}
-        if company_id != group:
-            used.add(company_id)
-        title = tidy(lines[title_id])
-        company = EMPLOYMENT_TYPE.sub('', tidy(lines[company_id])).strip()
-        if not company:
-            return None
-        start_date, end_date = match.groups() if match else (single.group(1), None)
-        first = min(title_id, company_id)
-        records.append(
-            dict(
-                title=title,
-                company=company,
-                start_date=start_date,
-                end_date=end_date,
-                description=None,
-                evidence='\n'.join(lines[first : d + 1]),
+    def title_and_company(self, d):
+        found, duration = self.above(d)
+        if len(found) == 1 and duration is not None:
+            # The first role under an employer: the employer is above its total time.
+            employer = next(
+                (j for j in range(duration - 1, self.start, -1) if not _filler(self.text(j))), None
             )
+            if employer is None or self.stops(employer):
+                return None
+            self.group = employer
+            return found[0], employer
+        if len(found) == 2:
+            self.group = None
+            return found[1], found[0]
+        if len(found) == 1 and self.group is not None:
+            return found[0], self.group
+        return None
+
+    def description(self, d):
+        """The bullet lines under a job's date and place, and the last line used."""
+        bullets, last = [], d
+        for k in range(d + 1, self.end):
+            text = self.text(k)
+            if not text or k in self.places:
+                continue
+            if not BULLET.match(text) or self.role_line(k):
+                break
+            bullets.append(text)
+            last = k
+        return bullets, last
+
+    def job(self, d):
+        ids = self.title_and_company(d)
+        if ids is None:
+            return None
+        title_id, company_id = ids
+        title = _tidy(self.lines[title_id])
+        company = EMPLOYMENT_TYPE.sub('', _tidy(self.lines[company_id])).strip()
+        if not title or not company or TYPE_ONLY.fullmatch(company):
+            return None
+        bullets, last = self.description(d)
+        self.used |= {title_id, company_id, d, *range(d, last + 1)}
+        match = _date(self.lines[d])
+        start_date, end_date = match.groups() if match.re is RANGE else (match.group(1), None)
+        return dict(
+            title=title,
+            company=company,
+            start_date=start_date,
+            end_date=end_date,
+            description='\n'.join(bullets) or None,
+            evidence='\n'.join(self.lines[min(title_id, company_id) : last + 1]),
         )
+
+
+def layout_jobs(source):
+    """Read the LinkedIn experience layout without a model, or return None.
+
+    Each job ends in a date line. Above it: the title and the employer ("Title /
+    Employer · Full-time / dates"), or, for several roles under one employer, the
+    employer, its total time and each role ("Acme / 1 yr 8 mos / On-site / Role /
+    Full-time / dates"). Below it: the place, then the bullets that describe the job.
+    A date line that does not fit makes the whole chunk ambiguous, so the caller
+    keeps the model result or its failure. Every value is a copy of a line.
+    """
+    lines = source.splitlines()
+    bounds = _bounds(lines)
+    if bounds is None:
+        return None
+    layout = _Layout(lines, *bounds)
+    records = []
+    for d in layout.dates:
+        record = layout.job(d)
+        if record is None:
+            return None
+        records.append(record)
     if not records:
         return None
 
@@ -264,3 +353,19 @@ def layout_jobs(source):
         return checked_records(source, records, fail)
     except AIError:
         return None
+
+
+def plain_jobs(jobs):
+    """Jobs without an employment type in the employer ("Acme «Full-time" -> "Acme"), and
+    without the model's mistakes: an employer that is only "Full-time", or a description
+    bullet ("+ Developed lesson plans... more") taken as the title."""
+    kept = []
+    for job in jobs:
+        company = EMPLOYMENT_TYPE.sub('', job.get('company') or '').strip()
+        title = (job.get('title') or '').strip()
+        if not company or TYPE_ONLY.fullmatch(company):
+            continue
+        if BULLET.match(title) or re.search(r'(?:\.{2,}|…)\s*more\W*$', title, re.I):
+            continue
+        kept.append({**job, 'company': company})
+    return kept
