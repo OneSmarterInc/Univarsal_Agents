@@ -165,7 +165,9 @@ class Client:
     def __init__(self, job, config, ipv4=True, transport=None):
         self.job, self.config, self.ipv4, self.transport = job, config, ipv4, transport
 
-    def get(self, path, params=None, token=None, missing_ok=False):
+    def get(self, path, params=None, token=None, missing_ok=False, broken_ok=False):
+        """broken_ok: a server error or no answer for this one item returns None (GitHub
+        answers some old gists with 502 every time); a used-up limit still stops the job."""
         if not self.job.use_quota('calls', self.config.daily_limit):
             raise JobFailed('daily_limit_reached')
         headers = {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
@@ -184,6 +186,8 @@ class Client:
             )
         except SourceError as exc:
             if exc.status == 404 and missing_ok:
+                return None
+            if broken_ok and exc.kind == 'unavailable':
                 return None
             if token and exc.kind == 'unauthorized':
                 raise TokenRefused() from None
@@ -323,8 +327,15 @@ def prove(client, profile, data):
                 'how': 'gist',
                 'reason': 'A public gist of this account holds the code.',
             }
+        unread = 0
         for gist in gists[:GISTS_READ]:
-            full = client.get(f'/gists/{gist.get("id")}', missing_ok=True) if gist.get('id') else None
+            full = (
+                client.get(f'/gists/{gist.get("id")}', missing_ok=True, broken_ok=True)
+                if gist.get('id')
+                else None
+            )
+            if full is None and gist.get('id'):
+                unread += 1
             if (
                 isinstance(full, dict)
                 and str((full.get('owner') or {}).get('login', '')).lower() == login.lower()
@@ -332,11 +343,10 @@ def prove(client, profile, data):
                 if gist_holds(full, challenge):
                     return {'status': 'proved_gist', 'how': 'gist',
                             'reason': 'A public gist of this account holds the code.'}  # fmt: skip
-        return {
-            'status': 'not_proved',
-            'how': 'gist',
-            'reason': 'No public gist of this account holds the code.',
-        }
+        reason = 'No public gist of this account holds the code.'
+        if unread:
+            reason += f' GitHub could not send {unread} of its gists; if the code is in one of them, send the job again later.'
+        return {'status': 'not_proved', 'how': 'gist', 'reason': reason}
     return {
         'status': 'not_proved',
         'how': None,

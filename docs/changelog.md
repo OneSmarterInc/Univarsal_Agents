@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.5 — GitHub gist proof survives a broken gist (October 2026)
+
+From the live GitHub test on the laptop.
+
+- **One gist GitHub cannot send no longer fails the job.** GitHub answers some old gists
+  with HTTP 502 every time (octocat's gist 9257657). The proof check now skips such a gist
+  and goes on; when no gist holds the code, the answer is `not_proved` and its reason says
+  how many gists could not be read. A used-up hourly limit (403/429) still stops the job
+  with `source_unavailable`, so the agent never says `not_proved` without checking.
+
 ## 1.3.4 — skills lists, split names and repeats across sections (October 2026)
 
 From the laptop re-run on reader cv/8. Every value is still a copy of the document's text.

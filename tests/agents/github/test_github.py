@@ -94,6 +94,8 @@ def github_answers(seen=None, gists=(), me=None, status=None):
             )
         if path.startswith('/gists/'):
             gist = next(g for g in gists if g['id'] == path.split('/')[-1])
+            if gist.get('broken'):
+                return httpx.Response(502, json={'message': 'Server Error'})
             return httpx.Response(200, json={**gist, 'files': gist.get('files_full', gist.get('files', {}))})
         if path == '/user':
             if request.headers.get('authorization') != f'Bearer {PERSONAL}':
@@ -256,6 +258,20 @@ def test_a_public_gist_with_the_code_proves_the_account():
         assert prove(client(job, github_answers(gists=gists)), PROFILE, job.data)['status'] == 'proved_gist'
     job = Job({'github': 'riya-example', 'proof_challenge': code})
     assert prove(client(job, github_answers(gists=[])), PROFILE, job.data)['status'] == 'not_proved'
+
+
+def test_one_gist_github_cannot_send_is_skipped_not_the_whole_check():
+    code = 'example-proof-7f3a9c'
+    broken = {'id': 'g9', 'description': 'old', 'public': True, 'files': {'a.md': {}}, 'broken': True}
+    good = {'id': 'g2', 'description': 'notes', 'public': True, 'files': {'b.md': {}},
+            'owner': {'login': 'riya-example'}, 'files_full': {'b.md': {'content': f'code {code}'}}}  # fmt: skip
+    job = Job({'github': 'riya-example', 'proof_challenge': code})
+    assert (
+        prove(client(job, github_answers(gists=[broken, good])), PROFILE, job.data)['status'] == 'proved_gist'
+    )
+    job = Job({'github': 'riya-example', 'proof_challenge': code})
+    result = prove(client(job, github_answers(gists=[broken])), PROFILE, job.data)
+    assert result['status'] == 'not_proved' and 'could not send 1' in result['reason']
 
 
 def test_without_proof_the_account_is_not_proved_and_the_project_is_told():
