@@ -3,6 +3,8 @@
 # temporary (7 days) and are not backed up. Example cron line:
 #   41 2 * * *  /opt/universal-agents/deploy/backup.sh >> /var/log/agents-backup.log 2>&1
 set -eu
+# cron starts with a short PATH; the AWS CLI may live in /snap/bin.
+PATH="$PATH:/usr/local/bin:/snap/bin"
 cd "$(dirname "$0")/.."
 : "${BACKUP_BUCKET:?set BACKUP_BUCKET, for example s3://example-agents-backups}"
 STAMP="$(date -u +%Y-%m-%dT%H%M%SZ)"

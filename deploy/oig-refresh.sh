@@ -3,6 +3,8 @@
 # OIG publishes UPDATED.csv every month. Run monthly, for example from cron:
 #   17 3 12 * *  /opt/universal-agents/deploy/oig-refresh.sh >> /var/log/oig-refresh.log 2>&1
 set -eu
+# cron starts with a short PATH; the AWS CLI may live in /snap/bin.
+PATH="$PATH:/usr/local/bin:/snap/bin"
 cd "$(dirname "$0")/.."
 URL="${OIG_URL:-https://oig.hhs.gov/exclusions/downloadables/UPDATED.csv}"
 TMP="$(mktemp -d)"

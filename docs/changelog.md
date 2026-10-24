@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1 — AWS setup for the approved server (October 2026)
+
+- `docs/deploy-aws.md`: the approved shape (one `t4g.large`, us-east-1, Qwen3 1.7B on the
+  CPU, Caddy for HTTPS, secrets in SSM Parameter Store, daily backup to S3, status alarm)
+  and the AWS CLI steps to build it.
+- `deploy/env-from-ssm.sh` writes `deploy/.env` from the secrets in Parameter Store.
+- `MODEL_TAG` defaults to `1.7b`. The scripts find the AWS CLI when cron runs them.
+
 ## 1.4.0 — Docker setup for a server (October 2026)
 
 Phase 2, first part. No change to the agents.
