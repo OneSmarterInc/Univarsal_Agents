@@ -16,7 +16,7 @@ PDF pages are rendered by `pypdfium2`, which pip installs; Poppler is not needed
 
 ```powershell
 cd D:\Kormic_Carrers
-git clone -b production-ready https://github.com/OneSmarterInc/Universal_Agents.git
+git clone https://github.com/OneSmarterInc/Universal_Agents.git
 cd Universal_Agents
 python -m venv .venv
 .\.venv\Scripts\activate
@@ -75,7 +75,7 @@ agents try --agent linkedin --key <linkedin key> --file shot1.png --file shot2.p
 
 **Level 1b: the lookup agents (NPPES, OIG, SAM, GitHub)**
 
-They are on `production-ready` (version 1.2.0 and later). After a pull:
+They are on `main` (version 1.2.0 and later). After a pull:
 
 ```powershell
 git pull

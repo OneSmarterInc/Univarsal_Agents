@@ -26,7 +26,7 @@ The image runs as user `agents` (uid 10001), never root. Uploaded files share th
 ## Start on any Linux server with Docker
 
 ```sh
-git clone -b production-ready https://github.com/OneSmarterInc/Universal_Agents.git /opt/universal-agents
+git clone https://github.com/OneSmarterInc/Universal_Agents.git /opt/universal-agents
 cd /opt/universal-agents
 cp deploy/env.example deploy/.env
 # fill in AGENTS_KEY_PEPPER, POSTGRES_PASSWORD (and the SAM key, GitHub token, API_DOMAIN)
@@ -188,7 +188,7 @@ AWS's Session Manager plugin, or use EC2 → Connect → Session Manager in the 
 ```sh
 apt-get update && apt-get install -y docker.io docker-compose-v2 git curl
 snap install aws-cli --classic
-git clone -b production-ready https://github.com/OneSmarterInc/Universal_Agents.git /opt/universal-agents
+git clone https://github.com/OneSmarterInc/Universal_Agents.git /opt/universal-agents
 cd /opt/universal-agents
 deploy/env-from-ssm.sh API_DOMAIN=agents.<domain> MODEL_TAG=1.7b
 docker compose -f deploy/compose.yml --env-file deploy/.env --profile https up -d --build
