@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+data
+models
+*.gguf
+*.db
+.venv
+__pycache__
+.pytest_cache
+evaluation/private_cases

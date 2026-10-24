@@ -1,11 +1,7 @@
-.git
-.env
-.env.*
-data
-models
-*.gguf
-*.db
-.venv
-__pycache__
-.pytest_cache
-evaluation/private_cases
+# Only the package and its build files go into the image.
+*
+!pyproject.toml
+!README.md
+!agents_service/
+agents_service/**/__pycache__
+agents_service/**/*.pyc

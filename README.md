@@ -1,54 +1,80 @@
-# Univarsal Agents
+# Universal Agents
 
-Independent pilot service for CV, LinkedIn screenshot and GitHub repository extraction. Clients call an authenticated HTTPS API; parsing, OCR, agents and Qwen inference run in the operator's AWS environment. Clients need no Ollama installation. No hosted LLM SDK or paid-provider fallback is included.
+Shared **extraction and lookup agents** for every OneSmarter project. A project sends a
+file (or, for a lookup, JSON) to an agent with its API key; the agent returns everything
+it found as JSON, with the exact quote or the outside source for every fact. Each project
+then applies its own rules (for example, Kormic Careers checks the name against the
+person's profile).
 
-**Status:** implementation and automated tests; not deployed or production-qualified. The selected `Qwen3-1.7B-Q4_K_M.gguf` artifact is not available in this workspace. No model has been downloaded, imported or benchmarked. Real inference, live OAuth, PostgreSQL and container deployment still require validation. No real API URL exists.
+| Agent | Reads | Address |
+|---|---|---|
+| CV | 1 PDF or Word CV | `/v1/cv/jobs` |
+| LinkedIn | 1–5 profile screenshots (PNG, JPG, WebP) | `/v1/linkedin/jobs` |
+| NPPES | A US NPI number, looked up at CMS | `/v1/nppes/jobs` |
+| OIG | A person, screened against the HHS-OIG exclusion list | `/v1/oig/jobs` |
+| SAM | A person, screened against SAM.gov exclusions | `/v1/sam/jobs` |
+| GitHub | A GitHub username: profile, repositories, languages, activity, proof of ownership | `/v1/github/jobs` |
+| More agents | Add a folder (see [Adding an agent](docs/adding-an-agent.md)) | `/v1/<name>/jobs` |
+
+CV and LinkedIn are on by default; NPPES, OIG, SAM and GitHub are switched on with
+`AGENTS_ENABLED_AGENTS` (see [Lookup agents](docs/lookup-agents.md)).
+
+- **Keys:** each project gets its own key for each agent it uses. A CV key works only on the CV agent.
+- **Model:** Qwen on Ollama by default. A setting can switch an agent to an API-key model later.
+- **Status:** phase 1 (runs on a laptop or one server). Phase 2 adds Docker and AWS.
 
 ## Documentation
 
-- [API contract](docs/API_CONTRACT.md)
-- [Migration manifest](docs/MIGRATION_MANIFEST.md)
-- [Implementation plan and status](docs/IMPLEMENTATION_PLAN.md)
-- [Open questions and risks](docs/OPEN_QUESTIONS_AND_RISKS.md)
-- [Model evaluation plan](docs/MODEL_EVALUATION_PLAN.md)
-- [AWS deployment plan](docs/AWS_DEPLOYMENT_PLAN.md)
-- [Ollama setup](docs/OLLAMA_SETUP.md)
-- [Validation record](docs/VALIDATION.md)
+| For | Read |
+|---|---|
+| Project developers calling the agents | [API guide](docs/api-guide.md) |
+| Running it on your laptop (Windows or Linux) | [Running locally](docs/running-locally.md) |
+| Running it on a server or AWS (Docker) | [Deploy on AWS](docs/deploy-aws.md) |
+| Admins handing out keys | [Keys](docs/keys.md) |
+| The model (Ollama, API key, GPU) | [Model setup](docs/model-setup.md) |
+| How the code is organised | [Architecture](docs/architecture.md) |
+| NPPES, OIG and SAM: setup and answers | [Lookup agents](docs/lookup-agents.md) |
+| Adding a new agent | [Adding an agent](docs/adding-an-agent.md) |
+| What changed | [Changelog](docs/changelog.md) · [Decisions](docs/decisions/) |
 
-## Development setup
+## Run it (short version)
 
-Linux and Python 3.12 are required for parser resource limits and worker file locking. Install system Tesseract (English trained data) and Poppler. Use synthetic documents only during development.
-
-```sh
-python3.12 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.lock
-pip install -e '.[test]'
-agents generate-secrets
-```
-
-Privately export the generated AGENTS_KEY_PEPPER and AGENTS_TOKEN_ENCRYPTION_KEY. Settings read environment variables, not `.env` automatically; Compose reads `.env` explicitly. Never commit real secrets or paste their output into logs. Set AGENTS_DATA_DIR to a private writable directory and AGENTS_DATABASE_URL to its SQLite path for development (default data/service.db). PostgreSQL is the proposed AWS backend.
-
-```sh
+```powershell
+pip install -e ".[test]"
+copy .env.example .env        # then set AGENTS_KEY_PEPPER (agents generate-secret)
 agents init-db
-agents create-key --tenant synthetic-demo
-uvicorn extraction_service.api:create_app --factory --host 127.0.0.1 --port 8000 --no-access-log
-# Separate terminal with the same environment:
-agents worker
+agents serve                  # terminal 1: the API on http://127.0.0.1:8000
+agents worker                 # terminal 2: reads the files (Ollama must be running)
+agents create-key --project test --agent cv
+agents try --agent cv --key <key> --file my_cv.pdf
 ```
 
-Use the one-time printed key from a client backend. See the contract for upload → submit → poll examples. Without verified model configuration, jobs report model availability errors; they do not download models or use a hosted fallback. Database initialization is for a fresh schema, not a schema-migration system. Keep application and schema versions together.
+Full steps, including Tesseract and Ollama: [Running locally](docs/running-locally.md).
 
-Run `pytest -q` and `ruff check extraction_service tests`. Tests use synthetic fixtures and mocked inference/GitHub responses except real local parser/OCR checks. `agents model-check` performs an actual synthetic inference only after approved model provisioning. It is not a quality benchmark. `agents sweep` manually runs cleanup. `agents revoke-key --id <key-id>` revokes a service key.
+## Commands
 
-## Pilot deployment template
+| Command | Does |
+|---|---|
+| `agents init-db` | Creates or upgrades the database |
+| `agents serve` | Starts the API |
+| `agents worker [--agents cv,linkedin]` | Starts a worker (start as many as you need) |
+| `agents create-key --project P --agent A` | Makes a key (shown once) |
+| `agents list-keys` / `agents revoke-key KEY_ID` | Lists or blocks keys |
+| `agents try --agent A --key K --file F` (or `--data '{...}'`) | Sends files (or JSON for a lookup agent) like a project would and prints the result |
+| `agents tool AGENT COMMAND` | An agent's own command, for example `agents tool oig load` |
+| `agents stats` | Usage per project and agent, and the waiting line |
+| `agents model-check` | Checks the model answers |
+| `agents accuracy` | Runs made-up documents through the real model and scores them |
+| `agents check` | Lint and all tests (developers) |
 
-`compose.yaml`, `Dockerfile` and `deploy/` are preparation artifacts, not a deployed installation. Docker was unavailable during this implementation; build/start/network tests are still required. Image digests must be selected and approved; required image variables deliberately have no defaults. Copy `.env.example` privately, configure secrets, database password/URL and approved hostname. Pin the Dockerfile base digest before deployment too.
+## Repository layout
 
-After infrastructure/model approval: build the image, start the DB, run `docker compose --profile tools run --rm admin agents init-db`, provision the model using the documented procedure, create tenant keys, then start API/worker/HTTPS services. Verify every readiness/security gate in the deployment plan. Only 443 is published. DNS must point to the approved host and TLS-ALPN certificate validation must work on 443. Ollama has no published port or outbound network; a private allowlisted proxy exposes inference/readiness routes to the application. Management commands are operator-only inside the model container.
+```
+agents_service/   the service (api, agents, ai, documents, core, worker, cli)
+tests/            all tests (agents check)
+accuracy/         made-up documents with expected answers
+docs/             guides and decisions
+legacy/           the October pilot, kept for reference
+```
 
-One host and one worker lock domain only. Local persistent volumes currently store uploads/results and PostgreSQL data; S3 is not implemented. Do not scale workers to multiple hosts until a distributed lease/queue and object storage design is implemented and tested. No AWS resources or spending are authorized by this template.
-
-## Rights and scope
-
-Implementation was written independently from reviewed requirements; original repositories, history, credentials and personal uploads were not copied or modified. Source reference: OneSmarterInc/Kormic_backend_sahil_ammar at fef5c27d547bab7f4447180be3f5da92dc031556. No original code license is asserted. Repository owner must select a license for this new service and resolve any future source reuse separately. Dependency, OCR binary and model licenses remain distinct.
+All code is OneSmarter code; see [OWNERSHIP.md](OWNERSHIP.md).

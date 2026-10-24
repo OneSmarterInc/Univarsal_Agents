@@ -1,0 +1,11 @@
+# Add on a server with an NVIDIA GPU (needs the NVIDIA Container Toolkit):
+#   docker compose -f deploy/compose.yml -f deploy/compose.gpu.yml --env-file deploy/.env up -d
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

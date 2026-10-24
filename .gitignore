@@ -1,4 +1,5 @@
 .env
+deploy/.env
 .env.*
 !.env.example
 .venv/
