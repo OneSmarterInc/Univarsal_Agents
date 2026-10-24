@@ -29,6 +29,7 @@ CV and LinkedIn are on by default; NPPES, OIG, SAM and GitHub are switched on wi
 |---|---|
 | Project developers calling the agents | [API guide](docs/api-guide.md) |
 | Running it on your laptop (Windows or Linux) | [Running locally](docs/running-locally.md) |
+| Running it on a server or AWS (Docker) | [Deploy on AWS](docs/deploy-aws.md) |
 | Admins handing out keys | [Keys](docs/keys.md) |
 | The model (Ollama, API key, GPU) | [Model setup](docs/model-setup.md) |
 | How the code is organised | [Architecture](docs/architecture.md) |

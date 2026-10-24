@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.0 — Docker setup for a server (October 2026)
+
+Phase 2, first part. No change to the agents.
+
+- `deploy/Dockerfile`: one image for the API, the workers and the CLI. Python 3.12,
+  Tesseract, runs as user `agents` (never root), built from wheels.
+- `deploy/compose.yml`: PostgreSQL 16, Ollama, a one-time model download (`qwen3:<MODEL_TAG>`
+  named `kormic-local`), a one-time database setup, the API (this server only), a worker
+  for CV and LinkedIn and a worker for NPPES, OIG, SAM and GitHub, and Caddy for HTTPS
+  (profile `https`). `deploy/compose.gpu.yml` gives Ollama the NVIDIA GPU.
+- `deploy/oig-refresh.sh` loads the monthly LEIE list; `deploy/backup.sh` backs up the
+  database to S3 daily.
+- `docs/deploy-aws.md`: how to start it, and the AWS shape for approval.
+
 ## 1.3.7 — LinkedIn: skill counts and About (October 2026)
 
 From the second live LinkedIn run (reader `linkedin/5`).

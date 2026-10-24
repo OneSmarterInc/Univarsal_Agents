@@ -1,0 +1,7 @@
+# Only the package and its build files go into the image.
+*
+!pyproject.toml
+!README.md
+!agents_service/
+agents_service/**/__pycache__
+agents_service/**/*.pyc
